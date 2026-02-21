@@ -1,54 +1,278 @@
 <!doctype html>
-<html><head><meta charset="utf-8"/><title>Nudge Feed</title></head>
-<body style="margin:0;font-family:Arial;background:#111;color:#fff;">
-<div style="position:fixed;top:10px;left:10px;z-index:2"><a href="/upload" style="color:#fff">Upload</a> · <a href="/library" style="color:#fff">Library</a></div>
-<main id="app" style="height:100vh;display:flex;align-items:center;justify-content:center;"></main>
-<script>
-const app = document.getElementById('app');
-let videos=[]; let idx=0; let viewed = new Set();
-const chessPuzzles=[
-  {prompt:'White to move: best continuation?',options:['Qh7+','Nf7+','Bxf7+','Qg8+'],answer:1},
-  {prompt:'Black to move: win material?',options:['Nxe4','Qh4','Bxh2+','Qxd2'],answer:2}
-];
-const workouts=[
-  {seconds:40,steps:['10 squats','20s plank','5 pushups']},
-  {seconds:30,steps:['15 jumping jacks','10 lunges each side']}
-];
-const esc=(s)=>String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
-async function load(){ const r=await fetch('/api/videos'); const j=await r.json(); videos=j.videos||[]; render(); }
-function getItems(){
-  const out=[];
-  for(let i=0;i<videos.length;i++){
-    out.push({type:'video',video:videos[i]});
-    if((i+1)%3===0){ out.push({type:'module',moduleType:((i/3)%2===0?'CHESS':'WORKOUT'),topic:videos[i].topic}); }
-  }
-  return out;
-}
-async function trackView(v){ if(viewed.has(v.id))return; viewed.add(v.id); await fetch('/api/videos/view',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({videoId:v.id})}); v.views++; }
-async function like(v){ const r=await fetch('/api/videos/like',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({videoId:v.id})}); const j=await r.json(); if(r.ok){v.likes=j.likes; render();}}
-function nav(step){ const items=getItems(); if(!items.length) return; idx=(idx+step+items.length)%items.length; render(); }
-async function trackModule(moduleType, topic, completed){ await fetch('/api/modules/attempt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({moduleType,topic,completed})}); }
-function renderChess(topic){ const p = chessPuzzles[Math.floor(Math.random()*chessPuzzles.length)]; trackModule('CHESS',topic,false);
-app.innerHTML=`<section style="width:min(420px,95vw);padding:20px;background:#1f2937;border-radius:16px"><h2>♟️ Chess Nudge</h2><p>${p.prompt}</p>${p.options.map((o,i)=>`<button data-i="${i}" style="display:block;width:100%;margin:6px 0">${o}</button>`).join('')}<p id="result"></p><div><button id="prev">Prev</button><button id="next">Next</button></div></section>`;
-[...document.querySelectorAll('button[data-i]')].forEach(b=>b.onclick=async()=>{const ok=Number(b.dataset.i)===p.answer;document.getElementById('result').textContent=ok?'Correct!':'Not quite.';await trackModule('CHESS',topic,true);});
-document.getElementById('next').onclick=()=>nav(1);document.getElementById('prev').onclick=()=>nav(-1);
-}
-function renderWorkout(topic){ const w=workouts[Math.floor(Math.random()*workouts.length)]; let t=w.seconds; trackModule('WORKOUT',topic,false);
-app.innerHTML=`<section style="width:min(420px,95vw);padding:20px;background:#1f2937;border-radius:16px"><h2>💪 Workout Nudge</h2><p>Timer: <span id='timer'>${t}</span>s</p>${w.steps.map((s,i)=>`<label style='display:block'><input type='checkbox' id='c${i}'/> ${s}</label>`).join('')}<button id='complete'>Complete</button><p id='msg'></p><div><button id="prev">Prev</button><button id="next">Next</button></div></section>`;
-const int=setInterval(()=>{t--; const el=document.getElementById('timer'); if(el)el.textContent=t; if(t<=0)clearInterval(int);},1000);
-document.getElementById('complete').onclick=async()=>{document.getElementById('msg').textContent='Great job!'; await trackModule('WORKOUT',topic,true);};
-document.getElementById('next').onclick=()=>{clearInterval(int);nav(1)};document.getElementById('prev').onclick=()=>{clearInterval(int);nav(-1)};
-}
-function render(){
-  const items=getItems();
-  if(!items.length){ app.innerHTML='<div><h2>No videos yet</h2><a style="color:#fff" href="/upload">Upload your first MP4</a></div>'; return; }
-  const item=items[idx];
-  if(item.type==='module'){ if(item.moduleType==='CHESS') return renderChess(item.topic); return renderWorkout(item.topic); }
-  const v=item.video; trackView(v);
-  app.innerHTML=`<section style="width:min(420px,95vw)"><video src="${v.filePath}" controls autoplay loop playsinline style="width:100%;height:70vh;object-fit:cover;border-radius:16px;background:#000"></video><h2>${esc(v.title)}</h2><p>Topic: ${esc(v.topic)}</p><p>Views: ${v.views} · Likes: ${v.likes}</p><div style="display:flex;gap:8px"><button id="prev">Prev</button><button id="next">Next</button><button id="like">Like</button></div></section>`;
-  document.getElementById('next').onclick=()=>nav(1); document.getElementById('prev').onclick=()=>nav(-1); document.getElementById('like').onclick=()=>like(v);
-}
-window.addEventListener('wheel',(e)=>{ if(Math.abs(e.deltaY)>15) nav(e.deltaY>0?1:-1); }, {passive:true});
-window.addEventListener('keydown',(e)=>{ if(e.key==='ArrowDown')nav(1); if(e.key==='ArrowUp')nav(-1);});
-load();
-</script></body></html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nudge | Break the loop</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #020617;
+        color: #e2e8f0;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .glitch {
+        animation: glitch-jitter 260ms steps(2, end) 5;
+      }
+
+      @keyframes glitch-jitter {
+        0% { transform: translateX(0) skewX(0deg); filter: hue-rotate(0deg); }
+        25% { transform: translateX(-8px) skewX(-3deg); filter: hue-rotate(35deg); }
+        50% { transform: translateX(6px) skewX(2deg); filter: hue-rotate(-25deg); }
+        75% { transform: translateX(-4px) skewX(-1deg); filter: hue-rotate(15deg); }
+        100% { transform: translateX(0) skewX(0deg); filter: hue-rotate(0deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/framer-motion/dist/framer-motion.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel" data-presets="typescript,react">
+      const { useEffect, useMemo, useRef, useState } = React;
+      const { AnimatePresence, motion, useReducedMotion } = window["framer-motion"];
+
+      type Post = {
+        id: string;
+        caption: string;
+        author: string;
+        likes: string;
+        comments: string;
+        videoSrc?: string;
+        gradient: string;
+      };
+
+      const POSTS: Post[] = [
+        {
+          id: "1",
+          caption: "Morning mobility flow. Save this for tomorrow.",
+          author: "@coachnudge",
+          likes: "8.2K",
+          comments: "302",
+          videoSrc: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+          gradient: "from-violet-600 to-fuchsia-500",
+        },
+        {
+          id: "2",
+          caption: "Three chess tactics in 15 seconds.",
+          author: "@mindlift",
+          likes: "5.1K",
+          comments: "119",
+          videoSrc: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+          gradient: "from-sky-600 to-cyan-400",
+        },
+        {
+          id: "3",
+          caption: "Hydration check: drink before you doom-scroll.",
+          author: "@habitstack",
+          likes: "9.3K",
+          comments: "441",
+          gradient: "from-emerald-500 to-teal-400",
+        },
+        {
+          id: "4",
+          caption: "Micro-workout challenge: 30s plank, now.",
+          author: "@nudgefit",
+          likes: "6.7K",
+          comments: "230",
+          videoSrc: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+          gradient: "from-orange-500 to-rose-500",
+        },
+        {
+          id: "5",
+          caption: "One more swipe won't change the day. This might.",
+          author: "@nudge",
+          likes: "12.4K",
+          comments: "790",
+          gradient: "from-indigo-600 to-blue-500",
+        },
+      ];
+
+      function App() {
+        const shouldReduceMotion = useReducedMotion();
+        const [currentIndex, setCurrentIndex] = useState(0);
+        const [overlayOpen, setOverlayOpen] = useState(false);
+        const [loopCount, setLoopCount] = useState(1);
+        const [glitching, setGlitching] = useState(false);
+        const [revealed, setRevealed] = useState(false);
+        const [touchStartY, setTouchStartY] = useState<number | null>(null);
+        const wheelLock = useRef(false);
+
+        const current = useMemo(() => POSTS[currentIndex], [currentIndex]);
+
+        useEffect(() => {
+          document.body.style.overflow = revealed ? "auto" : "hidden";
+          return () => { document.body.style.overflow = "auto"; };
+        }, [revealed]);
+
+        const triggerLoopIntercept = () => {
+          if (overlayOpen || revealed) return;
+          setGlitching(true);
+          setTimeout(() => {
+            setGlitching(false);
+            setOverlayOpen(true);
+            setLoopCount((value) => value + 1);
+          }, shouldReduceMotion ? 0 : 450);
+        };
+
+        const goToNext = () => {
+          if (overlayOpen || revealed) return;
+          if (currentIndex === POSTS.length - 1) {
+            triggerLoopIntercept();
+            return;
+          }
+          setCurrentIndex((value) => Math.min(value + 1, POSTS.length - 1));
+        };
+
+        const goToPrevious = () => {
+          if (overlayOpen || revealed) return;
+          setCurrentIndex((value) => Math.max(value - 1, 0));
+        };
+
+        useEffect(() => {
+          const onWheel = (event: WheelEvent) => {
+            if (revealed) return;
+            event.preventDefault();
+            if (wheelLock.current) return;
+            wheelLock.current = true;
+            if (event.deltaY > 8) goToNext();
+            if (event.deltaY < -8) goToPrevious();
+            setTimeout(() => { wheelLock.current = false; }, 500);
+          };
+
+          window.addEventListener("wheel", onWheel, { passive: false });
+          return () => window.removeEventListener("wheel", onWheel);
+        }, [currentIndex, overlayOpen, revealed]);
+
+        const onTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+          if (revealed) return;
+          setTouchStartY(event.touches[0].clientY);
+        };
+
+        const onTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+          if (revealed || touchStartY === null) return;
+          const deltaY = touchStartY - event.changedTouches[0].clientY;
+          if (Math.abs(deltaY) < 35) return;
+          if (deltaY > 0) goToNext();
+          if (deltaY < 0) goToPrevious();
+          setTouchStartY(null);
+        };
+
+        return (
+          <div className="min-h-screen bg-slate-950 text-slate-100">
+            {!revealed && (
+              <div className="fixed inset-0 z-40" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+                <div className={`absolute inset-0 ${glitching ? "glitch" : ""}`}>
+                  <AnimatePresence mode="wait">
+                    <motion.article
+                      key={current.id}
+                      initial={shouldReduceMotion ? false : { y: 80, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      exit={shouldReduceMotion ? { opacity: 0 } : { y: -80, opacity: 0 }}
+                      transition={{ duration: shouldReduceMotion ? 0 : 0.35, ease: "easeOut" }}
+                      className={`absolute inset-0 bg-gradient-to-b ${current.gradient}`}
+                    >
+                      {current.videoSrc ? (
+                        <video src={current.videoSrc} className="h-full w-full object-cover" autoPlay loop muted playsInline />
+                      ) : (
+                        <div className={`h-full w-full bg-gradient-to-b ${current.gradient}`} />
+                      )}
+                      <div className="absolute inset-0 bg-black/40" />
+                      <div className="absolute bottom-8 left-4 right-20">
+                        <p className="text-sm opacity-80">{current.author}</p>
+                        <p className="mt-2 text-lg font-semibold leading-tight">{current.caption}</p>
+                        <p className="mt-3 text-xs uppercase tracking-[0.25em] text-white/70">Post {currentIndex + 1} / {POSTS.length}</p>
+                      </div>
+                      <div className="absolute bottom-10 right-4 flex flex-col items-center gap-5 text-sm">
+                        <button aria-label="Like" className="rounded-full bg-black/30 px-3 py-2">❤️<span className="ml-2">{current.likes}</span></button>
+                        <button aria-label="Comment" className="rounded-full bg-black/30 px-3 py-2">💬<span className="ml-2">{current.comments}</span></button>
+                        <button aria-label="Share" className="rounded-full bg-black/30 px-3 py-2">↗</button>
+                      </div>
+                    </motion.article>
+                  </AnimatePresence>
+                </div>
+
+                <AnimatePresence>
+                  {overlayOpen && (
+                    <motion.div
+                      initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.98 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="absolute inset-0 z-50 flex items-center justify-center bg-black/75 px-6"
+                    >
+                      <div className="max-w-sm rounded-2xl border border-white/15 bg-slate-950/90 p-6 text-center backdrop-blur">
+                        <p className="text-3xl font-bold">You just did it again.</p>
+                        <p className="mt-3 text-slate-300">Loop counter: <span className="font-semibold text-rose-300">{loopCount}</span></p>
+                        <button
+                          className="mt-6 w-full rounded-xl bg-violet-500 px-4 py-3 font-semibold text-white hover:bg-violet-400"
+                          onClick={() => {
+                            setOverlayOpen(false);
+                            setRevealed(true);
+                          }}
+                        >
+                          Break the loop.
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <AnimatePresence>
+                  {revealed && (
+                    <>
+                      <motion.div
+                        initial={{ x: 0 }}
+                        animate={{ x: "-105%" }}
+                        transition={{ duration: shouldReduceMotion ? 0 : 0.75, ease: "easeInOut" }}
+                        className="absolute left-0 top-0 h-full w-1/2 bg-slate-950 z-50"
+                      />
+                      <motion.div
+                        initial={{ x: 0 }}
+                        animate={{ x: "105%" }}
+                        transition={{ duration: shouldReduceMotion ? 0 : 0.75, ease: "easeInOut" }}
+                        className="absolute right-0 top-0 h-full w-1/2 bg-slate-950 z-50"
+                      />
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
+            <main className="relative z-10">
+              <section className="min-h-screen px-6 pt-24 pb-16 md:px-12 lg:px-20 bg-slate-950">
+                <p className="text-violet-300 text-sm font-semibold uppercase tracking-[0.2em]">Nudge</p>
+                <h1 className="mt-4 max-w-3xl text-4xl md:text-6xl font-bold leading-tight">Turn endless scrolling into measurable momentum.</h1>
+                <p className="mt-5 max-w-2xl text-lg text-slate-300">Nudge inserts lightweight interventions into short-video loops so people regain intention before autopilot wins.</p>
+              </section>
+
+              <section className="grid gap-6 px-6 py-16 md:grid-cols-3 md:px-12 lg:px-20 bg-slate-900">
+                <article className="rounded-2xl border border-white/10 bg-slate-800/40 p-6">
+                  <h2 className="text-xl font-semibold">Deterministic inserts</h2>
+                  <p className="mt-3 text-slate-300">After every third clip, trigger an interactive module with no external dependencies.</p>
+                </article>
+                <article className="rounded-2xl border border-white/10 bg-slate-800/40 p-6">
+                  <h2 className="text-xl font-semibold">Local-first MVP</h2>
+                  <p className="mt-3 text-slate-300">Upload MP4 files, track likes/views, and run from a single SQLite-backed app.</p>
+                </article>
+                <article className="rounded-2xl border border-white/10 bg-slate-800/40 p-6">
+                  <h2 className="text-xl font-semibold">Behavior analytics</h2>
+                  <p className="mt-3 text-slate-300">Capture attempts, starts, and completions to understand loop-breaking moments.</p>
+                </article>
+              </section>
+            </main>
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>
