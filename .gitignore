@@ -1,0 +1,3 @@
+# Local demo/generated video artifacts
+public/uploads/*.mp4
+seed_videos/auto-seed-*.mp4

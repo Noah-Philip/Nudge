@@ -1,1 +1,56 @@
-[]
+[
+  {
+    "id": "seed-1",
+    "title": "Seed video 1",
+    "topic": "fitness",
+    "filePath": "/uploads/auto-seed-01.mp4",
+    "createdAt": "2026-02-21T04:03:39.889Z",
+    "views": 0,
+    "likes": 0
+  },
+  {
+    "id": "seed-2",
+    "title": "Seed video 2",
+    "topic": "chess",
+    "filePath": "/uploads/auto-seed-02.mp4",
+    "createdAt": "2026-02-21T04:03:39.890Z",
+    "views": 0,
+    "likes": 0
+  },
+  {
+    "id": "seed-3",
+    "title": "Seed video 3",
+    "topic": "mindset",
+    "filePath": "/uploads/auto-seed-03.mp4",
+    "createdAt": "2026-02-21T04:03:39.890Z",
+    "views": 0,
+    "likes": 0
+  },
+  {
+    "id": "seed-4",
+    "title": "Seed video 4",
+    "topic": "productivity",
+    "filePath": "/uploads/auto-seed-04.mp4",
+    "createdAt": "2026-02-21T04:03:39.890Z",
+    "views": 0,
+    "likes": 0
+  },
+  {
+    "id": "seed-5",
+    "title": "Seed video 5",
+    "topic": "wellness",
+    "filePath": "/uploads/auto-seed-05.mp4",
+    "createdAt": "2026-02-21T04:03:39.890Z",
+    "views": 0,
+    "likes": 0
+  },
+  {
+    "id": "seed-6",
+    "title": "Seed video 6",
+    "topic": "fitness",
+    "filePath": "/uploads/auto-seed-06.mp4",
+    "createdAt": "2026-02-21T04:03:39.890Z",
+    "views": 0,
+    "likes": 0
+  }
+]
