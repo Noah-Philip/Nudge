@@ -1,0 +1,1 @@
+-- schema placeholder for MVP shim

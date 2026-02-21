@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+enum InteractionType {
+  VIEW
+  LIKE
+  MODULE_START
+  MODULE_COMPLETE
+}
+
+enum ModuleType {
+  CHESS
+  WORKOUT
+}
+
+model Video {
+  id        String   @id @default(cuid())
+  title     String
+  topic     String
+  filePath  String
+  createdAt DateTime @default(now())
+  views     Int      @default(0)
+  likes     Int      @default(0)
+}
+
+model InteractionEvent {
+  id        String          @id @default(cuid())
+  videoId   String?
+  type      InteractionType
+  createdAt DateTime        @default(now())
+}
+
+model ModuleAttempt {
+  id         String     @id @default(cuid())
+  moduleType ModuleType
+  topic      String
+  completed  Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+}
