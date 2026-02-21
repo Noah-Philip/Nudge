@@ -112,7 +112,7 @@
 
         window.addEventListener('wheel', onWheel, { passive: false });
         return () => window.removeEventListener('wheel', onWheel);
-      }, [unlocked, overlayVisible, loopCount, reduceMotion]);
+      }, [unlocked]);
 
       const onTouchStart = (event) => {
         if (unlocked) return;
@@ -161,101 +161,72 @@
           <div className="absolute left-4 bottom-6 right-20">
             <p className="text-sm text-violet-300">{currentPost.author}</p>
             <h2 className="mt-2 text-lg font-semibold leading-tight">{currentPost.caption}</h2>
-            <p className="mt-3 text-xs text-slate-200">Swipe up / scroll to continue</p>
           </div>
           <IconColumn likes={currentPost.likes} comments={currentPost.comments} />
         </motion.div>
       );
 
       return (
-        <div className="min-h-screen">
-          <section className="mx-auto flex min-h-screen max-w-6xl flex-col items-center justify-center gap-8 px-4 py-6">
-            <div className="text-center">
-              <p className="text-xs uppercase tracking-[0.25em] text-violet-300">Nudge</p>
-              <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Break your autopilot scroll loop.</h1>
-            </div>
+        <main className="mx-auto flex min-h-screen max-w-md items-center justify-center p-4">
+          <div
+            className="relative h-[76vh] max-h-[740px] w-full"
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
+          >
+            <AnimatePresence mode="wait">{feedCard}</AnimatePresence>
 
-            <div
-              className="relative h-[76vh] max-h-[740px] w-full max-w-sm"
-              onTouchStart={onTouchStart}
-              onTouchMove={onTouchMove}
-              onTouchEnd={onTouchEnd}
-            >
-              <AnimatePresence mode="wait">{feedCard}</AnimatePresence>
+            <p className="absolute left-3 top-3 rounded bg-black/45 px-2 py-1 text-xs">{progressText}</p>
+            <a href="/feed" className="absolute right-3 top-3 rounded bg-violet-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-400">Open Feed</a>
 
-              <p className="absolute left-3 top-3 rounded bg-black/45 px-2 py-1 text-xs">{progressText}</p>
-
-              <AnimatePresence>
-                {overlayVisible && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/90 px-8 text-center"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label="Break the loop dialog"
+            <AnimatePresence>
+              {overlayVisible && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/90 px-8 text-center"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Break the loop dialog"
+                >
+                  <h2 className="text-3xl font-bold">You just did it again.</h2>
+                  <p className="mt-3 text-slate-300">Loop count: <span className="font-semibold text-white">{loopCount}</span></p>
+                  <button
+                    className="mt-6 rounded-lg bg-violet-500 px-5 py-3 font-semibold text-white hover:bg-violet-400"
+                    onClick={startUnzip}
                   >
-                    <h2 className="text-3xl font-bold">You just did it again.</h2>
-                    <p className="mt-3 text-slate-300">Loop count: <span className="font-semibold text-white">{loopCount}</span></p>
-                    <button
-                      className="mt-6 rounded-lg bg-violet-500 px-5 py-3 font-semibold text-white hover:bg-violet-400"
-                      onClick={startUnzip}
-                    >
-                      Break the loop.
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                    Break the loop.
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-              <AnimatePresence>
-                {isUnzipping && !reduceMotion && (
-                  <>
-                    <motion.div
-                      initial={{ x: 0 }}
-                      animate={{ x: '-105%' }}
-                      transition={{ duration: 0.75, ease: 'easeInOut' }}
-                      onAnimationComplete={() => {
-                        setUnlocked(true);
-                        setOverlayVisible(false);
-                        setIsUnzipping(false);
-                      }}
-                      className="absolute left-0 top-0 z-30 h-full w-1/2 bg-slate-900"
-                    />
-                    <motion.div
-                      initial={{ x: 0 }}
-                      animate={{ x: '105%' }}
-                      transition={{ duration: 0.75, ease: 'easeInOut' }}
-                      className="absolute right-0 top-0 z-30 h-full w-1/2 bg-slate-900"
-                    />
-                  </>
-                )}
-              </AnimatePresence>
-            </div>
-          </section>
-
-          <main className={`mx-auto max-w-6xl px-6 pb-20 transition-opacity duration-500 ${unlocked ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
-            <section className="grid gap-6 py-8 sm:grid-cols-3">
-              <a href="/feed" className="rounded-xl border border-white/10 bg-slate-900 p-5">
-                <h3 className="text-lg font-semibold">Open Feed</h3>
-                <p className="mt-2 text-sm text-slate-300">Continue into the full short-video experience.</p>
-              </a>
-              <a href="/upload" className="rounded-xl border border-white/10 bg-slate-900 p-5">
-                <h3 className="text-lg font-semibold">Upload MP4</h3>
-                <p className="mt-2 text-sm text-slate-300">Drop fresh clips for new deterministic inserts.</p>
-              </a>
-              <a href="/library" className="rounded-xl border border-white/10 bg-slate-900 p-5">
-                <h3 className="text-lg font-semibold">Manage Library</h3>
-                <p className="mt-2 text-sm text-slate-300">Review and delete local videos.</p>
-              </a>
-            </section>
-
-            <section className="mt-8 rounded-2xl border border-white/10 bg-slate-900 p-6">
-              <h2 className="text-2xl font-bold">Why Nudge</h2>
-              <p className="mt-3 text-slate-300">Nudge injects intentional breaks into endless-feed behavior and routes you into actions that matter.</p>
-            </section>
-          </main>
-        </div>
+            <AnimatePresence>
+              {isUnzipping && !reduceMotion && (
+                <>
+                  <motion.div
+                    initial={{ x: 0 }}
+                    animate={{ x: '-105%' }}
+                    transition={{ duration: 0.75, ease: 'easeInOut' }}
+                    onAnimationComplete={() => {
+                      setUnlocked(true);
+                      setOverlayVisible(false);
+                      setIsUnzipping(false);
+                    }}
+                    className="absolute left-0 top-0 z-30 h-full w-1/2 bg-slate-900"
+                  />
+                  <motion.div
+                    initial={{ x: 0 }}
+                    animate={{ x: '105%' }}
+                    transition={{ duration: 0.75, ease: 'easeInOut' }}
+                    className="absolute right-0 top-0 z-30 h-full w-1/2 bg-slate-900"
+                  />
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+        </main>
       );
     }
 
