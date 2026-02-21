@@ -546,7 +546,7 @@
                     <button
                       className="mt-6 rounded-lg bg-violet-500 px-5 py-3 font-semibold text-white hover:bg-violet-400"
                       style={{ transform: buttonPulse ? 'scale(1.06)' : 'scale(1)', transition: 'transform 120ms ease-out' }}
-                      onClick={() => { if (reduceMotion) { setUnlocked(true); setOverlayVisible(false); } else { setIsUnzipping(true); } }}
+                      onClick={() => { window.location.href = '/feed'; }}
                     >
                       Break the loop
                     </button>
