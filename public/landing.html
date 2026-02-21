@@ -302,16 +302,6 @@
       };
 
       const onTouchEnd = () => setSwipeStartY(null);
-
-      const startUnzip = () => {
-        setIsUnzipping(true);
-        if (reduceMotion) {
-          setUnlocked(true);
-          setOverlayVisible(false);
-          setIsUnzipping(false);
-        }
-      };
-
       const feedLayer = useMemo(() => (
         <>
           {currentPost.src ? (
@@ -398,7 +388,7 @@
                     ref={buttonRef}
                     className="mt-6 rounded-lg bg-violet-500 px-5 py-3 font-semibold text-white hover:bg-violet-400"
                     style={{ transform: buttonPulse ? 'scale(1.06)' : 'scale(1)', transition: 'transform 120ms ease-out' }}
-                    onClick={startUnzip}
+                    onClick={() => { window.location.href = '/feed'; }}
                   >
                     Break the loop.
                   </button>
