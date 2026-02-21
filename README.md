@@ -33,12 +33,12 @@ npm run dev
 Then open `http://localhost:3000`.
 
 ## Seed sample videos
-1. Put 5–10 `.mp4` files in `seed_videos/`.
-2. Copy those same files to `public/uploads/`.
-3. Run:
+1. (Optional) Put 5–10 `.mp4` files in `seed_videos/`.
+2. Run:
 ```bash
 npm run seed
 ```
+3. If `seed_videos/` is empty, the seed script auto-generates 6 tiny local MP4 demo clips and copies them into `public/uploads/`.
 
 ## Definition of Done commands
 ```bash
