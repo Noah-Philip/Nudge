@@ -48,11 +48,13 @@
       workoutTimer: null,
       workoutSeconds: 30,
       isMuted: false,
+      typingStartedAt: 0,
     };
 
     const MODULE_EVERY = 3;
+    const MODULE_SEQUENCE = ['chess', 'workout', 'typing'];
 
-    const moduleTypeForIndex = (index) => (index % 2 === 0 ? 'chess' : 'workout');
+    const moduleTypeForIndex = (index) => MODULE_SEQUENCE[index % MODULE_SEQUENCE.length];
 
     async function loadVideos() {
       status.textContent = 'Loading videos...';
@@ -311,6 +313,43 @@
       });
     }
 
+    function renderTypingModule() {
+      const prompt = 'stay focused and keep shipping';
+      state.typingStartedAt = Date.now();
+      card.innerHTML = `
+        <h2 class="text-lg font-semibold">Typing Sprint</h2>
+        <p class="mt-2 text-sm text-slate-300">Type this phrase exactly, then submit.</p>
+        <p class="mt-3 rounded-lg bg-slate-800 p-3 text-sm font-medium text-sky-200">${prompt}</p>
+        <label class="mt-3 block text-sm">Your input</label>
+        <input id="typingInput" class="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm" autocomplete="off" spellcheck="false" />
+        <button id="submitTypingBtn" class="mt-3 rounded bg-sky-500 px-3 py-2 text-sm font-semibold">Submit</button>
+        <p id="moduleFeedback" class="mt-3 text-sm text-violet-300">Finish the typing test to complete this module.</p>
+      `;
+
+      postJson('/api/modules/attempt', { moduleType: 'TYPING_TEST', topic: 'focus', completed: false });
+
+      const input = document.getElementById('typingInput');
+      const submit = document.getElementById('submitTypingBtn');
+      const feedback = document.getElementById('moduleFeedback');
+
+      const evaluate = () => {
+        const value = input.value.trim();
+        if (value === prompt) {
+          const elapsedMs = Date.now() - state.typingStartedAt;
+          const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
+          feedback.textContent = `Nice. Module complete in ${elapsedSec}s — continue scrolling.`;
+          postJson('/api/modules/attempt', { moduleType: 'TYPING_TEST', topic: 'focus', completed: true });
+          return;
+        }
+        feedback.textContent = 'Not quite. Match the phrase exactly and try again.';
+      };
+
+      submit.addEventListener('click', evaluate);
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') evaluate();
+      });
+    }
+
     function startTimer() {
       if (state.workoutTimer) return;
       const timerText = document.getElementById('timerText');
@@ -340,11 +379,14 @@
     }
 
     function renderModule() {
-      const type = moduleTypeForIndex(Math.floor(state.moduleTicker / MODULE_EVERY));
+      const completedGroups = Math.max(0, Math.floor((state.moduleTicker - 1) / MODULE_EVERY));
+      const type = moduleTypeForIndex(completedGroups);
       if (type === 'chess') {
         renderChessModule();
-      } else {
+      } else if (type === 'workout') {
         renderWorkoutModule();
+      } else {
+        renderTypingModule();
       }
     }
 
