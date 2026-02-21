@@ -11,9 +11,10 @@ Nudge is a small TikTok-like demo with local MP4 uploads, looping feed playback,
   - looping behavior when reaching the end
   - video autoplay/loop
   - like + view counters
-- Interactive inserts every **3 videos** (deterministic):
+- Interactive inserts every **3 videos** (deterministic) in a fixed cycle:
   - Chess multiple-choice puzzle card
   - Workout timer + checklist card
+  - Short typing test card
 - Basic admin library at `/library` with delete action.
 - Local JSON persistence in `/data`.
 
@@ -52,9 +53,8 @@ npm run lint
 1. Open `/upload`, upload an MP4 with title + topic.
 2. Open `/feed` and play the top video.
 3. Scroll down (or press next) through videos.
-4. After every 3 videos, show an interactive card:
-   - Complete a chess answer, then continue.
-   - Complete workout card and press complete.
-5. Like a video and observe count increment.
-6. Continue past the end and confirm feed loops to the start.
-7. Open `/library` and delete a video.
+4. After every 3 videos, show an interactive card in order: chess, workout, typing test.
+5. Complete each module once, then continue.
+6. Like a video and observe count increment.
+7. Continue past the end and confirm feed loops to the start.
+8. Open `/library` and delete a video.
