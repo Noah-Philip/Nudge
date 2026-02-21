@@ -203,51 +203,62 @@
         if (!ctx) return;
 
         const dpr = window.devicePixelRatio || 1;
-        canvas.width = Math.floor(feedRect.width * dpr);
-        canvas.height = Math.floor(feedRect.height * dpr);
-        canvas.style.width = `${feedRect.width}px`;
-        canvas.style.height = `${feedRect.height}px`;
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        canvas.width = Math.floor(viewportWidth * dpr);
+        canvas.height = Math.floor(viewportHeight * dpr);
+        canvas.style.width = `${viewportWidth}px`;
+        canvas.style.height = `${viewportHeight}px`;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-        const fallbackCenter = { x: feedRect.width / 2, y: feedRect.height / 2 };
-        const center = lastSwipeRef.current
+        const localFallbackCenter = { x: feedRect.width / 2, y: feedRect.height / 2 };
+        const localCenter = lastSwipeRef.current
           ? {
             x: clamp(lastSwipeRef.current.x - feedRect.left, 0, feedRect.width),
             y: clamp(lastSwipeRef.current.y - feedRect.top, 0, feedRect.height),
           }
-          : fallbackCenter;
+          : localFallbackCenter;
+        const center = {
+          x: feedRect.left + localCenter.x,
+          y: feedRect.top + localCenter.y,
+        };
         setFractureCenter(center);
 
         const fracturePointCount = Math.floor(8 + Math.random() * 7);
         const fracturePoints = Array.from({ length: fracturePointCount }, () => ({
-          x: center.x + (Math.random() - 0.5) * 48,
-          y: center.y + (Math.random() - 0.5) * 48,
+          x: localCenter.x + (Math.random() - 0.5) * 48,
+          y: localCenter.y + (Math.random() - 0.5) * 48,
         }));
 
-        const snapshot = buildSnapshotCanvas(feedRect, center);
+        const snapshot = buildSnapshotCanvas(feedRect, localCenter);
         const reduced = reduceMotion || lowEndDevice;
-        const baseShards = buildShardTriangles(feedRect.width, feedRect.height, center, reduced);
+        const baseShards = buildShardTriangles(feedRect.width, feedRect.height, localCenter, reduced);
 
         const shards = baseShards.map((shard) => {
-          const centroid = shard.points.reduce((acc, point) => ({ x: acc.x + point[0], y: acc.y + point[1] }), { x: 0, y: 0 });
+          const points = shard.points.map((point) => [point[0] + feedRect.left, point[1] + feedRect.top]);
+          const centroid = points.reduce((acc, point) => ({ x: acc.x + point[0], y: acc.y + point[1] }), { x: 0, y: 0 });
           centroid.x /= shard.points.length;
           centroid.y /= shard.points.length;
           const angle = Math.atan2(centroid.y - center.y, centroid.x - center.x);
-          const speed = reduced ? 80 + Math.random() * 120 : 200 + Math.random() * 700;
+          const speed = reduced ? 220 + Math.random() * 180 : 560 + Math.random() * 880;
+          const edgeBoost = reduced ? 90 : 260;
           return {
-            points: shard.points,
+            points,
             x: 0,
             y: 0,
             angle: 0,
             alpha: 1,
             spin: reduced ? 0 : (Math.random() - 0.5) * 7,
-            vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed,
-            fractureBias: fracturePoints[Math.floor(Math.random() * fracturePoints.length)],
+            vx: Math.cos(angle) * speed + (Math.cos(angle) * edgeBoost),
+            vy: Math.sin(angle) * speed + (Math.sin(angle) * edgeBoost),
+            fractureBias: (() => {
+              const bias = fracturePoints[Math.floor(Math.random() * fracturePoints.length)];
+              return { x: bias.x + feedRect.left, y: bias.y + feedRect.top };
+            })(),
           };
         });
 
-        const gravity = reduced ? 0 : 1500;
+        const gravity = reduced ? 0 : 220;
         const start = performance.now();
         let previous = start;
 
@@ -264,7 +275,7 @@
           ctx.clip();
 
           if (snapshot) {
-            ctx.drawImage(snapshot, 0, 0, feedRect.width, feedRect.height);
+            ctx.drawImage(snapshot, feedRect.left, feedRect.top, feedRect.width, feedRect.height);
           } else {
             ctx.fillStyle = 'rgba(255,255,255,0.28)';
             ctx.fill();
@@ -281,9 +292,9 @@
           const elapsed = now - start;
           const dt = Math.min(0.032, (now - previous) / 1000 || 0.016);
           previous = now;
-          const fade = clamp((elapsed - 900) / 180, 0, 1);
+          const fade = clamp((elapsed - 840) / 320, 0, 1);
 
-          ctx.clearRect(0, 0, feedRect.width, feedRect.height);
+          ctx.clearRect(0, 0, viewportWidth, viewportHeight);
           shards.forEach((shard) => {
             const dx = shard.fractureBias.x - center.x;
             const dy = shard.fractureBias.y - center.y;
@@ -311,10 +322,10 @@
             drawShard(shard, false);
           });
 
-          if (elapsed < 1080) {
+          if (elapsed < 1280) {
             rafRef.current = requestAnimationFrame(tick);
           } else {
-            ctx.clearRect(0, 0, feedRect.width, feedRect.height);
+            ctx.clearRect(0, 0, viewportWidth, viewportHeight);
             setShowShatterLayer(false);
             setFreezeOverlay(false);
           }
@@ -494,14 +505,12 @@
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="pointer-events-none fixed inset-0 z-30 flex items-center justify-center"
+                    className="pointer-events-none fixed inset-0 z-30"
                     aria-hidden="true"
                   >
-                    <div className="relative h-[76vh] max-h-[740px] w-[min(100%,28rem)] overflow-hidden rounded-2xl border border-white/20">
-                      <canvas ref={shatterCanvasRef} className="absolute inset-0 h-full w-full" />
-                      <div className="glass-sheen absolute inset-0"></div>
-                      {fractureCenter && <div className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/30 blur-sm" style={{ left: fractureCenter.x, top: fractureCenter.y }}></div>}
-                    </div>
+                    <canvas ref={shatterCanvasRef} className="absolute inset-0 h-full w-full" />
+                    <div className="glass-sheen absolute inset-0"></div>
+                    {fractureCenter && <div className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/30 blur-sm" style={{ left: fractureCenter.x, top: fractureCenter.y }}></div>}
                   </motion.div>
                 )}
               </AnimatePresence>
