@@ -152,6 +152,12 @@
           <button data-answer="sac" class="chess-answer rounded-lg bg-slate-800 px-3 py-2 text-left">C) Sacrifice queen on h7</button>
         </div>
         <p id="moduleFeedback" class="mt-3 text-sm text-violet-300"></p>
+        <div class="mt-5 rounded-lg border border-white/10 bg-slate-950/60 p-3">
+          <p class="text-sm text-slate-200">Bonus board puzzle: White to move, find the fork.</p>
+          <p class="mt-1 text-xs text-slate-400">Click the piece, then click the destination square.</p>
+          <div id="chessBoard" class="mx-auto mt-3 grid w-full max-w-[360px] grid-cols-8 overflow-hidden rounded border border-white/10"></div>
+          <p id="boardPuzzleStatus" class="mt-2 text-sm text-violet-300">Your move?</p>
+        </div>
       `;
 
       postJson('/api/modules/attempt', { moduleType: 'CHESS_PUZZLE', topic: 'chess', completed: false });
@@ -166,6 +172,118 @@
           }
         });
       });
+
+      setupChessBoardPuzzle();
+    }
+
+    function setupChessBoardPuzzle() {
+      const boardEl = document.getElementById('chessBoard');
+      const puzzleStatus = document.getElementById('boardPuzzleStatus');
+      const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+      const board = {
+        e8: 'bk',
+        h8: 'br',
+        d8: 'bq',
+        e7: 'bp',
+        g7: 'bp',
+        b7: 'bp',
+        c6: 'bn',
+        e6: 'bb',
+        g5: 'wn',
+        c4: 'wb',
+        d1: 'wq',
+        g1: 'wk',
+      };
+      const pieceImages = {
+        wk: 'https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg',
+        wq: 'https://upload.wikimedia.org/wikipedia/commons/1/15/Chess_qlt45.svg',
+        wb: 'https://upload.wikimedia.org/wikipedia/commons/b/b1/Chess_blt45.svg',
+        wn: 'https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg',
+        wp: 'https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg',
+        bk: 'https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg',
+        bq: 'https://upload.wikimedia.org/wikipedia/commons/4/47/Chess_qdt45.svg',
+        bb: 'https://upload.wikimedia.org/wikipedia/commons/9/98/Chess_bdt45.svg',
+        bn: 'https://upload.wikimedia.org/wikipedia/commons/e/ef/Chess_ndt45.svg',
+        bp: 'https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg',
+        br: 'https://upload.wikimedia.org/wikipedia/commons/f/ff/Chess_rdt45.svg',
+      };
+
+      const solution = { from: 'g5', to: 'f7' };
+      let selectedSquare = '';
+      let solved = false;
+
+      function isWhitePiece(piece) {
+        return piece.startsWith('w');
+      }
+
+      function movePiece(from, to) {
+        board[to] = board[from];
+        delete board[from];
+      }
+
+      function renderBoard() {
+        boardEl.innerHTML = '';
+        for (let rank = 8; rank >= 1; rank -= 1) {
+          for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+            const square = `${files[fileIndex]}${rank}`;
+            const isLight = (rank + fileIndex) % 2 === 0;
+            const piece = board[square] || '';
+            const isSelected = square === selectedSquare;
+            const squareEl = document.createElement('button');
+            squareEl.type = 'button';
+            squareEl.setAttribute('data-square', square);
+            squareEl.className = `aspect-square p-0 transition ${isLight ? 'bg-amber-100' : 'bg-amber-700'} ${isSelected ? 'ring-2 ring-sky-400 ring-inset' : ''}`;
+            if (piece) {
+              const pieceEl = document.createElement('img');
+              pieceEl.src = pieceImages[piece];
+              pieceEl.alt = piece;
+              pieceEl.className = 'pointer-events-none h-full w-full select-none object-contain scale-110';
+              squareEl.appendChild(pieceEl);
+            }
+            squareEl.addEventListener('click', () => onSquareClick(square));
+            boardEl.appendChild(squareEl);
+          }
+        }
+      }
+
+      function onSquareClick(square) {
+        if (solved) return;
+        const piece = board[square];
+        if (!selectedSquare) {
+          if (piece && isWhitePiece(piece)) {
+            selectedSquare = square;
+            puzzleStatus.textContent = `Selected ${square}. Now choose destination.`;
+            renderBoard();
+          } else {
+            puzzleStatus.textContent = 'Select a white piece first.';
+          }
+          return;
+        }
+
+        if (square === selectedSquare) {
+          selectedSquare = '';
+          puzzleStatus.textContent = 'Selection cleared. Your move?';
+          renderBoard();
+          return;
+        }
+
+        const move = { from: selectedSquare, to: square };
+        const isCorrect = move.from === solution.from && move.to === solution.to;
+        if (isCorrect) {
+          movePiece(move.from, move.to);
+          solved = true;
+          selectedSquare = '';
+          puzzleStatus.textContent = 'Nice! Nf7+ forks king and rook.';
+          postJson('/api/modules/attempt', { moduleType: 'CHESS_PUZZLE', topic: 'chess', completed: true });
+        } else {
+          selectedSquare = '';
+          puzzleStatus.textContent = 'Not that move. Hint: jump with the knight for a fork.';
+        }
+
+        renderBoard();
+      }
+
+      renderBoard();
     }
 
     function renderWorkoutModule() {
