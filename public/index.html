@@ -1,278 +1,277 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Nudge | Break the loop</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        background: #020617;
-        color: #e2e8f0;
-        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nudge Feed</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100">
+  <main class="mx-auto max-w-md min-h-screen p-4">
+    <header class="flex items-center justify-between py-2">
+      <h1 class="text-xl font-bold">Nudge Feed</h1>
+      <nav class="text-sm space-x-3">
+        <a class="text-violet-300" href="/upload">Upload</a>
+        <a class="text-violet-300" href="/library">Library</a>
+      </nav>
+    </header>
+
+    <section id="card" class="mt-3 rounded-xl border border-white/10 bg-slate-900 p-3"></section>
+
+    <div class="mt-4 flex items-center justify-between gap-3">
+      <button id="prevBtn" class="flex-1 rounded-lg bg-slate-800 px-4 py-2">Prev</button>
+      <button id="likeBtn" class="flex-1 rounded-lg bg-rose-500 px-4 py-2 font-semibold">Like ❤️</button>
+      <button id="nextBtn" class="flex-1 rounded-lg bg-slate-800 px-4 py-2">Next</button>
+    </div>
+
+    <p id="meta" class="mt-3 text-xs text-slate-400"></p>
+    <p id="status" class="mt-2 text-sm text-amber-300"></p>
+  </main>
+
+  <script>
+    const card = document.getElementById('card');
+    const meta = document.getElementById('meta');
+    const status = document.getElementById('status');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const likeBtn = document.getElementById('likeBtn');
+
+    const state = {
+      videos: [],
+      cursor: 0,
+      moduleTicker: 0,
+      showingModule: false,
+      recordedViews: new Set(),
+      playbackError: false,
+      workoutDone: { timer: false, checklist: false },
+      workoutTimer: null,
+      workoutSeconds: 30,
+    };
+
+    const MODULE_EVERY = 3;
+
+    const moduleTypeForIndex = (index) => (index % 2 === 0 ? 'chess' : 'workout');
+
+    async function loadVideos() {
+      status.textContent = 'Loading videos...';
+      const response = await fetch('/api/videos');
+      const data = await response.json();
+      state.videos = data.videos || [];
+      if (!state.videos.length) {
+        status.textContent = 'No videos yet. Add one at /upload.';
+      } else {
+        status.textContent = '';
       }
+      render();
+    }
 
-      .glitch {
-        animation: glitch-jitter 260ms steps(2, end) 5;
+    function currentVideo() {
+      return state.videos[state.cursor];
+    }
+
+    async function postJson(url, body) {
+      try {
+        await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      } catch (_) {
+        // fire-and-forget for MVP
       }
+    }
 
-      @keyframes glitch-jitter {
-        0% { transform: translateX(0) skewX(0deg); filter: hue-rotate(0deg); }
-        25% { transform: translateX(-8px) skewX(-3deg); filter: hue-rotate(35deg); }
-        50% { transform: translateX(6px) skewX(2deg); filter: hue-rotate(-25deg); }
-        75% { transform: translateX(-4px) skewX(-1deg); filter: hue-rotate(15deg); }
-        100% { transform: translateX(0) skewX(0deg); filter: hue-rotate(0deg); }
+    async function recordViewOnce(video) {
+      if (!video || state.recordedViews.has(video.id)) return;
+      state.recordedViews.add(video.id);
+      await postJson('/api/videos/view', { videoId: video.id });
+    }
+
+    async function likeCurrent() {
+      const video = currentVideo();
+      if (!video || state.showingModule) return;
+      const response = await fetch('/api/videos/like', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ videoId: video.id }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        video.likes = data.likes;
+        renderMeta();
       }
-    </style>
-  </head>
-  <body>
-    <div id="root"></div>
+    }
 
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/framer-motion/dist/framer-motion.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    function renderMeta() {
+      if (!state.videos.length) {
+        meta.textContent = '0 videos loaded';
+        return;
+      }
+      if (state.showingModule) {
+        meta.textContent = `Interactive module • inserted after every ${MODULE_EVERY} videos`;
+        return;
+      }
+      const video = currentVideo();
+      meta.textContent = `${state.cursor + 1}/${state.videos.length} • ${video.title} • topic: ${video.topic} • ${video.views || 0} views • ${video.likes || 0} likes`;
+    }
 
-    <script type="text/babel" data-presets="typescript,react">
-      const { useEffect, useMemo, useRef, useState } = React;
-      const { AnimatePresence, motion, useReducedMotion } = window["framer-motion"];
+    function showVideo(video) {
+      state.playbackError = false;
+      card.innerHTML = `
+        <h2 class="mb-2 text-lg font-semibold">${video.title}</h2>
+        <video id="feedVideo" class="w-full rounded-lg bg-black" src="${video.filePath}" autoplay muted playsinline loop controls preload="metadata"></video>
+        <p class="mt-2 text-sm text-slate-300">Topic: ${video.topic}</p>
+      `;
 
-      type Post = {
-        id: string;
-        caption: string;
-        author: string;
-        likes: string;
-        comments: string;
-        videoSrc?: string;
-        gradient: string;
-      };
+      const element = document.getElementById('feedVideo');
+      element.addEventListener('loadeddata', () => { state.playbackError = false; status.textContent = ''; });
+      element.addEventListener('error', () => {
+        state.playbackError = true;
+        status.textContent = 'Video failed to play. Ensure file uses a browser-supported MP4 codec (H.264 + AAC).';
+        card.innerHTML += '<p class="mt-2 text-sm text-amber-300">Playback error for this file.</p>';
+      });
 
-      const POSTS: Post[] = [
-        {
-          id: "1",
-          caption: "Morning mobility flow. Save this for tomorrow.",
-          author: "@coachnudge",
-          likes: "8.2K",
-          comments: "302",
-          videoSrc: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-          gradient: "from-violet-600 to-fuchsia-500",
-        },
-        {
-          id: "2",
-          caption: "Three chess tactics in 15 seconds.",
-          author: "@mindlift",
-          likes: "5.1K",
-          comments: "119",
-          videoSrc: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-          gradient: "from-sky-600 to-cyan-400",
-        },
-        {
-          id: "3",
-          caption: "Hydration check: drink before you doom-scroll.",
-          author: "@habitstack",
-          likes: "9.3K",
-          comments: "441",
-          gradient: "from-emerald-500 to-teal-400",
-        },
-        {
-          id: "4",
-          caption: "Micro-workout challenge: 30s plank, now.",
-          author: "@nudgefit",
-          likes: "6.7K",
-          comments: "230",
-          videoSrc: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-          gradient: "from-orange-500 to-rose-500",
-        },
-        {
-          id: "5",
-          caption: "One more swipe won't change the day. This might.",
-          author: "@nudge",
-          likes: "12.4K",
-          comments: "790",
-          gradient: "from-indigo-600 to-blue-500",
-        },
-      ];
+      recordViewOnce(video);
+    }
 
-      function App() {
-        const shouldReduceMotion = useReducedMotion();
-        const [currentIndex, setCurrentIndex] = useState(0);
-        const [overlayOpen, setOverlayOpen] = useState(false);
-        const [loopCount, setLoopCount] = useState(1);
-        const [glitching, setGlitching] = useState(false);
-        const [revealed, setRevealed] = useState(false);
-        const [touchStartY, setTouchStartY] = useState<number | null>(null);
-        const wheelLock = useRef(false);
+    function renderChessModule() {
+      card.innerHTML = `
+        <h2 class="text-lg font-semibold">Chess Puzzle</h2>
+        <p class="mt-2 text-sm text-slate-300">White to move. Which tactic wins material?</p>
+        <div class="mt-3 grid gap-2">
+          <button data-answer="fork" class="chess-answer rounded-lg bg-slate-800 px-3 py-2 text-left">A) Knight fork on c7+</button>
+          <button data-answer="pin" class="chess-answer rounded-lg bg-slate-800 px-3 py-2 text-left">B) Pin the knight with Bb5</button>
+          <button data-answer="sac" class="chess-answer rounded-lg bg-slate-800 px-3 py-2 text-left">C) Sacrifice queen on h7</button>
+        </div>
+        <p id="moduleFeedback" class="mt-3 text-sm text-violet-300"></p>
+      `;
 
-        const current = useMemo(() => POSTS[currentIndex], [currentIndex]);
+      postJson('/api/modules/attempt', { moduleType: 'CHESS_PUZZLE', topic: 'chess', completed: false });
 
-        useEffect(() => {
-          document.body.style.overflow = revealed ? "auto" : "hidden";
-          return () => { document.body.style.overflow = "auto"; };
-        }, [revealed]);
-
-        const triggerLoopIntercept = () => {
-          if (overlayOpen || revealed) return;
-          setGlitching(true);
-          setTimeout(() => {
-            setGlitching(false);
-            setOverlayOpen(true);
-            setLoopCount((value) => value + 1);
-          }, shouldReduceMotion ? 0 : 450);
-        };
-
-        const goToNext = () => {
-          if (overlayOpen || revealed) return;
-          if (currentIndex === POSTS.length - 1) {
-            triggerLoopIntercept();
-            return;
+      card.querySelectorAll('.chess-answer').forEach((button) => {
+        button.addEventListener('click', () => {
+          const feedback = document.getElementById('moduleFeedback');
+          const isCorrect = button.getAttribute('data-answer') === 'fork';
+          feedback.textContent = isCorrect ? 'Correct. Nice pattern recognition.' : 'Not quite. Fork was strongest.';
+          if (isCorrect) {
+            postJson('/api/modules/attempt', { moduleType: 'CHESS_PUZZLE', topic: 'chess', completed: true });
           }
-          setCurrentIndex((value) => Math.min(value + 1, POSTS.length - 1));
-        };
+        });
+      });
+    }
 
-        const goToPrevious = () => {
-          if (overlayOpen || revealed) return;
-          setCurrentIndex((value) => Math.max(value - 1, 0));
-        };
+    function renderWorkoutModule() {
+      state.workoutDone = { timer: false, checklist: false };
+      state.workoutSeconds = 30;
+      card.innerHTML = `
+        <h2 class="text-lg font-semibold">Workout Nudge</h2>
+        <p class="mt-2 text-sm text-slate-300">30-second micro reset + checklist.</p>
+        <div class="mt-3 rounded-lg bg-slate-800 p-3">
+          <p id="timerText" class="text-2xl font-bold">00:30</p>
+          <button id="startTimerBtn" class="mt-2 rounded bg-emerald-500 px-3 py-2 text-sm font-semibold">Start timer</button>
+        </div>
+        <label class="mt-3 flex items-center gap-2 text-sm">
+          <input id="checkDone" type="checkbox" /> I completed 10 bodyweight squats
+        </label>
+        <p id="moduleFeedback" class="mt-3 text-sm text-violet-300">Complete both items to unlock next.</p>
+      `;
 
-        useEffect(() => {
-          const onWheel = (event: WheelEvent) => {
-            if (revealed) return;
-            event.preventDefault();
-            if (wheelLock.current) return;
-            wheelLock.current = true;
-            if (event.deltaY > 8) goToNext();
-            if (event.deltaY < -8) goToPrevious();
-            setTimeout(() => { wheelLock.current = false; }, 500);
-          };
+      postJson('/api/modules/attempt', { moduleType: 'WORKOUT_TIMER', topic: 'fitness', completed: false });
 
-          window.addEventListener("wheel", onWheel, { passive: false });
-          return () => window.removeEventListener("wheel", onWheel);
-        }, [currentIndex, overlayOpen, revealed]);
+      document.getElementById('startTimerBtn').addEventListener('click', startTimer);
+      document.getElementById('checkDone').addEventListener('change', (event) => {
+        state.workoutDone.checklist = event.target.checked;
+        updateWorkoutFeedback();
+      });
+    }
 
-        const onTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
-          if (revealed) return;
-          setTouchStartY(event.touches[0].clientY);
-        };
+    function startTimer() {
+      if (state.workoutTimer) return;
+      const timerText = document.getElementById('timerText');
+      state.workoutTimer = setInterval(() => {
+        state.workoutSeconds -= 1;
+        const mm = String(Math.floor(state.workoutSeconds / 60)).padStart(2, '0');
+        const ss = String(state.workoutSeconds % 60).padStart(2, '0');
+        timerText.textContent = `${mm}:${ss}`;
+        if (state.workoutSeconds <= 0) {
+          clearInterval(state.workoutTimer);
+          state.workoutTimer = null;
+          state.workoutDone.timer = true;
+          updateWorkoutFeedback();
+        }
+      }, 1000);
+    }
 
-        const onTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
-          if (revealed || touchStartY === null) return;
-          const deltaY = touchStartY - event.changedTouches[0].clientY;
-          if (Math.abs(deltaY) < 35) return;
-          if (deltaY > 0) goToNext();
-          if (deltaY < 0) goToPrevious();
-          setTouchStartY(null);
-        };
+    function updateWorkoutFeedback() {
+      const feedback = document.getElementById('moduleFeedback');
+      const done = state.workoutDone.timer && state.workoutDone.checklist;
+      if (done) {
+        feedback.textContent = 'Great work. Module complete — continue scrolling.';
+        postJson('/api/modules/attempt', { moduleType: 'WORKOUT_TIMER', topic: 'fitness', completed: true });
+      } else {
+        feedback.textContent = 'Complete both items to unlock next.';
+      }
+    }
 
-        return (
-          <div className="min-h-screen bg-slate-950 text-slate-100">
-            {!revealed && (
-              <div className="fixed inset-0 z-40" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-                <div className={`absolute inset-0 ${glitching ? "glitch" : ""}`}>
-                  <AnimatePresence mode="wait">
-                    <motion.article
-                      key={current.id}
-                      initial={shouldReduceMotion ? false : { y: 80, opacity: 0 }}
-                      animate={{ y: 0, opacity: 1 }}
-                      exit={shouldReduceMotion ? { opacity: 0 } : { y: -80, opacity: 0 }}
-                      transition={{ duration: shouldReduceMotion ? 0 : 0.35, ease: "easeOut" }}
-                      className={`absolute inset-0 bg-gradient-to-b ${current.gradient}`}
-                    >
-                      {current.videoSrc ? (
-                        <video src={current.videoSrc} className="h-full w-full object-cover" autoPlay loop muted playsInline />
-                      ) : (
-                        <div className={`h-full w-full bg-gradient-to-b ${current.gradient}`} />
-                      )}
-                      <div className="absolute inset-0 bg-black/40" />
-                      <div className="absolute bottom-8 left-4 right-20">
-                        <p className="text-sm opacity-80">{current.author}</p>
-                        <p className="mt-2 text-lg font-semibold leading-tight">{current.caption}</p>
-                        <p className="mt-3 text-xs uppercase tracking-[0.25em] text-white/70">Post {currentIndex + 1} / {POSTS.length}</p>
-                      </div>
-                      <div className="absolute bottom-10 right-4 flex flex-col items-center gap-5 text-sm">
-                        <button aria-label="Like" className="rounded-full bg-black/30 px-3 py-2">❤️<span className="ml-2">{current.likes}</span></button>
-                        <button aria-label="Comment" className="rounded-full bg-black/30 px-3 py-2">💬<span className="ml-2">{current.comments}</span></button>
-                        <button aria-label="Share" className="rounded-full bg-black/30 px-3 py-2">↗</button>
-                      </div>
-                    </motion.article>
-                  </AnimatePresence>
-                </div>
+    function renderModule() {
+      const type = moduleTypeForIndex(Math.floor(state.moduleTicker / MODULE_EVERY));
+      if (type === 'chess') {
+        renderChessModule();
+      } else {
+        renderWorkoutModule();
+      }
+    }
 
-                <AnimatePresence>
-                  {overlayOpen && (
-                    <motion.div
-                      initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.98 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="absolute inset-0 z-50 flex items-center justify-center bg-black/75 px-6"
-                    >
-                      <div className="max-w-sm rounded-2xl border border-white/15 bg-slate-950/90 p-6 text-center backdrop-blur">
-                        <p className="text-3xl font-bold">You just did it again.</p>
-                        <p className="mt-3 text-slate-300">Loop counter: <span className="font-semibold text-rose-300">{loopCount}</span></p>
-                        <button
-                          className="mt-6 w-full rounded-xl bg-violet-500 px-4 py-3 font-semibold text-white hover:bg-violet-400"
-                          onClick={() => {
-                            setOverlayOpen(false);
-                            setRevealed(true);
-                          }}
-                        >
-                          Break the loop.
-                        </button>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+    function render() {
+      prevBtn.disabled = !state.videos.length;
+      nextBtn.disabled = !state.videos.length;
+      likeBtn.disabled = !state.videos.length || state.showingModule;
 
-                <AnimatePresence>
-                  {revealed && (
-                    <>
-                      <motion.div
-                        initial={{ x: 0 }}
-                        animate={{ x: "-105%" }}
-                        transition={{ duration: shouldReduceMotion ? 0 : 0.75, ease: "easeInOut" }}
-                        className="absolute left-0 top-0 h-full w-1/2 bg-slate-950 z-50"
-                      />
-                      <motion.div
-                        initial={{ x: 0 }}
-                        animate={{ x: "105%" }}
-                        transition={{ duration: shouldReduceMotion ? 0 : 0.75, ease: "easeInOut" }}
-                        className="absolute right-0 top-0 h-full w-1/2 bg-slate-950 z-50"
-                      />
-                    </>
-                  )}
-                </AnimatePresence>
-              </div>
-            )}
-
-            <main className="relative z-10">
-              <section className="min-h-screen px-6 pt-24 pb-16 md:px-12 lg:px-20 bg-slate-950">
-                <p className="text-violet-300 text-sm font-semibold uppercase tracking-[0.2em]">Nudge</p>
-                <h1 className="mt-4 max-w-3xl text-4xl md:text-6xl font-bold leading-tight">Turn endless scrolling into measurable momentum.</h1>
-                <p className="mt-5 max-w-2xl text-lg text-slate-300">Nudge inserts lightweight interventions into short-video loops so people regain intention before autopilot wins.</p>
-              </section>
-
-              <section className="grid gap-6 px-6 py-16 md:grid-cols-3 md:px-12 lg:px-20 bg-slate-900">
-                <article className="rounded-2xl border border-white/10 bg-slate-800/40 p-6">
-                  <h2 className="text-xl font-semibold">Deterministic inserts</h2>
-                  <p className="mt-3 text-slate-300">After every third clip, trigger an interactive module with no external dependencies.</p>
-                </article>
-                <article className="rounded-2xl border border-white/10 bg-slate-800/40 p-6">
-                  <h2 className="text-xl font-semibold">Local-first MVP</h2>
-                  <p className="mt-3 text-slate-300">Upload MP4 files, track likes/views, and run from a single SQLite-backed app.</p>
-                </article>
-                <article className="rounded-2xl border border-white/10 bg-slate-800/40 p-6">
-                  <h2 className="text-xl font-semibold">Behavior analytics</h2>
-                  <p className="mt-3 text-slate-300">Capture attempts, starts, and completions to understand loop-breaking moments.</p>
-                </article>
-              </section>
-            </main>
-          </div>
-        );
+      if (!state.videos.length) {
+        card.innerHTML = '<p class="text-slate-300">Upload an MP4 to begin.</p>';
+        renderMeta();
+        return;
       }
 
-      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-    </script>
-  </body>
+      if (state.showingModule) {
+        renderModule();
+      } else {
+        showVideo(currentVideo());
+      }
+
+      renderMeta();
+    }
+
+    function step(direction) {
+      if (!state.videos.length) return;
+
+      if (state.showingModule) {
+        state.showingModule = false;
+      } else {
+        state.cursor = (state.cursor + direction + state.videos.length) % state.videos.length;
+        if (direction > 0) {
+          state.moduleTicker += 1;
+          if (state.moduleTicker % MODULE_EVERY === 0) {
+            state.showingModule = true;
+          }
+        }
+      }
+
+      render();
+    }
+
+    prevBtn.addEventListener('click', () => step(-1));
+    nextBtn.addEventListener('click', () => step(1));
+    likeBtn.addEventListener('click', likeCurrent);
+
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown') step(1);
+      if (event.key === 'ArrowUp') step(-1);
+    });
+
+    loadVideos().catch((error) => {
+      status.textContent = `Failed to load videos: ${error.message}`;
+    });
+  </script>
+</body>
 </html>
