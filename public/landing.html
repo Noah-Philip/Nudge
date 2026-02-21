@@ -10,24 +10,31 @@
   <script src="https://unpkg.com/framer-motion/dist/framer-motion.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
-    .glitch {
-      animation: glitch 320ms steps(2, end) 2;
+    .feed-displacement {
+      filter: url(#feed-displacement-filter);
     }
 
-    @keyframes glitch {
-      0% { transform: translate(0); filter: hue-rotate(0deg); }
-      20% { transform: translate(-2px, 2px); filter: hue-rotate(40deg); }
-      40% { transform: translate(2px, -2px); filter: hue-rotate(-20deg); }
-      60% { transform: translate(-1px, 1px); }
-      100% { transform: translate(0); filter: hue-rotate(0deg); }
+    .particle-canvas {
+      image-rendering: pixelated;
+    }
+
+    .high-contrast-freeze {
+      backdrop-filter: contrast(180%) grayscale(30%);
+      background: rgba(255, 255, 255, 0.1);
     }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100">
+  <svg width="0" height="0" class="absolute">
+    <filter id="feed-displacement-filter">
+      <feTurbulence type="fractalNoise" baseFrequency="0.055" numOctaves="1" seed="11" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="36" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+  </svg>
   <div id="root"></div>
 
   <script type="text/babel" data-presets="typescript,react">
-    const { useEffect, useRef, useState } = React;
+    const { useEffect, useMemo, useRef, useState } = React;
     const { motion, AnimatePresence, useReducedMotion } = Motion;
 
     const POSTS = [
@@ -37,6 +44,8 @@
       { id: 4, caption: "One move puzzle, can you spot it?", author: "@chessflow", likes: "15.2k", comments: "1.1k", src: "/uploads/demo-clip-4.mp4" },
       { id: 5, caption: "Just one more scroll...", author: "@nudge", likes: "22.0k", comments: "1.9k", gradient: "from-rose-500 to-orange-900" },
     ];
+
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
     function IconColumn({ likes, comments }) {
       return (
@@ -54,12 +63,24 @@
       const reduceMotion = useReducedMotion();
       const [index, setIndex] = useState(0);
       const [overlayVisible, setOverlayVisible] = useState(false);
-      const [isGlitching, setIsGlitching] = useState(false);
       const [isUnzipping, setIsUnzipping] = useState(false);
       const [unlocked, setUnlocked] = useState(false);
       const [loopCount, setLoopCount] = useState(1);
       const [swipeStartY, setSwipeStartY] = useState(null);
+      const [frameTearActive, setFrameTearActive] = useState(false);
+      const [sliceOffsets, setSliceOffsets] = useState(Array(8).fill(0));
+      const [rgbSplitActive, setRgbSplitActive] = useState(false);
+      const [displacementActive, setDisplacementActive] = useState(false);
+      const [shakeTransform, setShakeTransform] = useState('translate3d(0,0,0) rotate(0deg)');
+      const [freezeOverlay, setFreezeOverlay] = useState(false);
+      const [buttonPulse, setButtonPulse] = useState(false);
       const lockRef = useRef(false);
+      const glitchRunningRef = useRef(false);
+      const feedRef = useRef(null);
+      const canvasRef = useRef(null);
+      const buttonRef = useRef(null);
+      const particlesRef = useRef([]);
+      const particleFrameRef = useRef(0);
 
       const currentPost = POSTS[index];
       const progressText = `${index + 1} / ${POSTS.length}`;
@@ -74,6 +95,156 @@
         document.body.style.overflow = unlocked ? 'auto' : 'hidden';
         return () => { document.body.style.overflow = 'auto'; };
       }, [unlocked]);
+
+      useEffect(() => () => cancelAnimationFrame(particleFrameRef.current), []);
+
+      const pulseButton = () => {
+        setButtonPulse(true);
+        setTimeout(() => setButtonPulse(false), 240);
+      };
+
+      const startParticleEffect = () => {
+        const canvas = canvasRef.current;
+        const feed = feedRef.current;
+        if (!canvas || !feed) return;
+
+        const ctx = canvas.getContext('2d');
+        const rect = feed.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const count = reduceMotion ? 30 : 120;
+        const target = {
+          x: rect.width / 2,
+          y: rect.height * 0.63,
+        };
+
+        canvas.width = Math.floor(rect.width * dpr);
+        canvas.height = Math.floor(rect.height * dpr);
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const pool = particlesRef.current;
+        pool.length = 0;
+
+        for (let i = 0; i < count; i += 1) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 1.6 + Math.random() * 3.4;
+          pool.push({
+            x: Math.random() * rect.width,
+            y: Math.random() * rect.height,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: 1 + Math.random() * 2.5,
+            life: 0,
+            stuck: false,
+          });
+        }
+
+        const burstDuration = reduceMotion ? 180 : 300;
+        const totalDuration = reduceMotion ? 560 : 900;
+        const start = performance.now();
+
+        const tick = (now) => {
+          const elapsed = now - start;
+          const burst = elapsed < burstDuration;
+          ctx.clearRect(0, 0, rect.width, rect.height);
+
+          let reached = 0;
+          for (let i = 0; i < pool.length; i += 1) {
+            const p = pool[i];
+            p.life += 1;
+
+            if (!burst) {
+              const dx = target.x - p.x;
+              const dy = target.y - p.y;
+              const dist = Math.max(6, Math.hypot(dx, dy));
+              const pull = reduceMotion ? 0.08 : 0.14;
+              p.vx = p.vx * 0.92 + (dx / dist) * pull * dist * 0.07;
+              p.vy = p.vy * 0.92 + (dy / dist) * pull * dist * 0.07;
+              if (dist < 10) {
+                p.stuck = true;
+                reached += 1;
+              }
+            }
+
+            if (p.stuck) {
+              p.x += (target.x - p.x) * 0.34;
+              p.y += (target.y - p.y) * 0.34;
+              p.size *= 0.9;
+            } else {
+              p.x += p.vx;
+              p.y += p.vy;
+            }
+
+            ctx.fillStyle = p.stuck ? 'rgba(167,139,250,0.75)' : 'rgba(255,255,255,0.85)';
+            ctx.fillRect(p.x, p.y, p.size, p.size);
+          }
+
+          if (elapsed > totalDuration) {
+            ctx.clearRect(0, 0, rect.width, rect.height);
+            pulseButton();
+            return;
+          }
+
+          if (reached > pool.length * 0.45 && overlayVisible) {
+            pulseButton();
+          }
+
+          particleFrameRef.current = requestAnimationFrame(tick);
+        };
+
+        cancelAnimationFrame(particleFrameRef.current);
+        particleFrameRef.current = requestAnimationFrame(tick);
+      };
+
+      const runGlitchSequence = async () => {
+        if (glitchRunningRef.current) return;
+        glitchRunningRef.current = true;
+
+        startParticleEffect();
+
+        if (reduceMotion) {
+          setFreezeOverlay(true);
+          setTimeout(() => pulseButton(), 140);
+          await sleep(800);
+          setFreezeOverlay(false);
+          return;
+        }
+
+        setFrameTearActive(true);
+        for (let frame = 0; frame < 3; frame += 1) {
+          setSliceOffsets(Array.from({ length: 8 }, () => Math.round((Math.random() * 80) - 40)));
+          await sleep(70);
+        }
+        setFrameTearActive(false);
+
+        setRgbSplitActive(true);
+        await sleep(160);
+        setDisplacementActive(true);
+        await sleep(150);
+        setDisplacementActive(false);
+        setRgbSplitActive(false);
+
+        const shakeStart = performance.now();
+        await new Promise((resolve) => {
+          const shake = (now) => {
+            const elapsed = now - shakeStart;
+            const t = Math.min(elapsed / 420, 1);
+            const amp = (1 - t) * 7;
+            const x = (Math.random() * 2 - 1) * amp;
+            const y = (Math.random() * 2 - 1) * amp * 0.7;
+            const r = (Math.random() * 2 - 1) * amp * 0.16;
+            setShakeTransform(`translate3d(${x}px, ${y}px, 0) rotate(${r}deg)`);
+            if (t < 1) {
+              requestAnimationFrame(shake);
+            } else {
+              setShakeTransform('translate3d(0,0,0) rotate(0deg)');
+              resolve();
+            }
+          };
+          requestAnimationFrame(shake);
+        });
+      };
 
       const maybeAdvance = (delta) => {
         if (unlocked || overlayVisible || lockRef.current) return;
@@ -90,18 +261,18 @@
       };
 
       useEffect(() => {
-        if (index !== POSTS.length - 1 || overlayVisible || unlocked || isGlitching) return;
-        setIsGlitching(true);
-        setTimeout(() => {
+        if (index !== POSTS.length - 1 || overlayVisible || unlocked || glitchRunningRef.current) return;
+
+        runGlitchSequence().then(() => {
           setOverlayVisible(true);
-          setIsGlitching(false);
           setLoopCount((current) => {
             const next = current + 1;
             localStorage.setItem('nudge-loop-counter', String(next));
             return next;
           });
-        }, reduceMotion ? 0 : 420);
-      }, [index, overlayVisible, unlocked, isGlitching, reduceMotion]);
+          glitchRunningRef.current = false;
+        });
+      }, [index, overlayVisible, unlocked]);
 
       useEffect(() => {
         const onWheel = (event) => {
@@ -141,16 +312,8 @@
         }
       };
 
-      const feedCard = (
-        <motion.div
-          key={currentPost.id}
-          initial={{ opacity: 0.3, y: reduceMotion ? 0 : 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0.2, y: reduceMotion ? 0 : -20 }}
-          transition={{ duration: reduceMotion ? 0 : 0.28 }}
-          className={`relative h-full w-full overflow-hidden rounded-2xl border border-white/15 bg-slate-900 ${isGlitching ? 'glitch' : ''}`}
-          aria-live="polite"
-        >
+      const feedLayer = useMemo(() => (
+        <>
           {currentPost.src ? (
             <video src={currentPost.src} muted autoPlay loop playsInline className="h-full w-full object-cover" />
           ) : (
@@ -163,6 +326,45 @@
             <h2 className="mt-2 text-lg font-semibold leading-tight">{currentPost.caption}</h2>
           </div>
           <IconColumn likes={currentPost.likes} comments={currentPost.comments} />
+        </>
+      ), [currentPost]);
+
+      const feedCard = (
+        <motion.div
+          key={currentPost.id}
+          initial={{ opacity: 0.3, y: reduceMotion ? 0 : 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0.2, y: reduceMotion ? 0 : -20 }}
+          transition={{ duration: reduceMotion ? 0 : 0.28 }}
+          className="relative h-full w-full overflow-hidden rounded-2xl border border-white/15 bg-slate-900"
+          style={{ transform: shakeTransform }}
+          aria-live="polite"
+          ref={feedRef}
+        >
+          <div className={`absolute inset-0 ${displacementActive ? 'feed-displacement' : ''}`}>
+            {feedLayer}
+          </div>
+
+          {rgbSplitActive && (
+            <>
+              <div className="absolute inset-0 mix-blend-screen opacity-70" style={{ transform: 'translateX(-6px)', filter: 'hue-rotate(335deg)' }}>{feedLayer}</div>
+              <div className="absolute inset-0 mix-blend-screen opacity-70" style={{ transform: 'translateX(6px)', filter: 'hue-rotate(180deg)' }}>{feedLayer}</div>
+            </>
+          )}
+
+          {frameTearActive && Array.from({ length: 8 }).map((_, sliceIndex) => {
+            const top = sliceIndex * 12.5;
+            return (
+              <div key={`slice-${sliceIndex}`} className="absolute left-0 w-full overflow-hidden" style={{ top: `${top}%`, height: '12.5%' }}>
+                <div className="absolute left-0 w-full h-full" style={{ transform: `translateX(${sliceOffsets[sliceIndex]}px) translateY(-${top}%)`, height: '800%' }}>
+                  {feedLayer}
+                </div>
+              </div>
+            );
+          })}
+
+          {freezeOverlay && <div className="high-contrast-freeze absolute inset-0"></div>}
+          <canvas ref={canvasRef} className="particle-canvas absolute inset-0 z-20 pointer-events-none"></canvas>
         </motion.div>
       );
 
@@ -185,7 +387,7 @@
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/90 px-8 text-center"
+                  className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/90 px-8 text-center"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Break the loop dialog"
@@ -193,7 +395,9 @@
                   <h2 className="text-3xl font-bold">You just did it again.</h2>
                   <p className="mt-3 text-slate-300">Loop count: <span className="font-semibold text-white">{loopCount}</span></p>
                   <button
+                    ref={buttonRef}
                     className="mt-6 rounded-lg bg-violet-500 px-5 py-3 font-semibold text-white hover:bg-violet-400"
+                    style={{ transform: buttonPulse ? 'scale(1.06)' : 'scale(1)', transition: 'transform 120ms ease-out' }}
                     onClick={startUnzip}
                   >
                     Break the loop.
@@ -214,13 +418,13 @@
                       setOverlayVisible(false);
                       setIsUnzipping(false);
                     }}
-                    className="absolute left-0 top-0 z-30 h-full w-1/2 bg-slate-900"
+                    className="absolute left-0 top-0 z-40 h-full w-1/2 bg-slate-900"
                   />
                   <motion.div
                     initial={{ x: 0 }}
                     animate={{ x: '105%' }}
                     transition={{ duration: 0.75, ease: 'easeInOut' }}
-                    className="absolute right-0 top-0 z-30 h-full w-1/2 bg-slate-900"
+                    className="absolute right-0 top-0 z-40 h-full w-1/2 bg-slate-900"
                   />
                 </>
               )}
