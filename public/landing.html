@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nudge Landing</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/framer-motion/dist/framer-motion.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    .glitch {
+      animation: glitch 320ms steps(2, end) 2;
+    }
+
+    @keyframes glitch {
+      0% { transform: translate(0); filter: hue-rotate(0deg); }
+      20% { transform: translate(-2px, 2px); filter: hue-rotate(40deg); }
+      40% { transform: translate(2px, -2px); filter: hue-rotate(-20deg); }
+      60% { transform: translate(-1px, 1px); }
+      100% { transform: translate(0); filter: hue-rotate(0deg); }
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100">
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="typescript,react">
+    const { useEffect, useRef, useState } = React;
+    const { motion, AnimatePresence, useReducedMotion } = Motion;
+
+    const POSTS = [
+      { id: 1, caption: "3 breath reset between meetings", author: "@nudge", likes: "12.4k", comments: "611", gradient: "from-violet-600 to-indigo-900" },
+      { id: 2, caption: "Small wins > big plans", author: "@coach", likes: "9.1k", comments: "488", src: "/uploads/demo-clip-2.mp4" },
+      { id: 3, caption: "Posture check + 20 sec stretch", author: "@fitloop", likes: "7.7k", comments: "245", gradient: "from-emerald-500 to-cyan-900" },
+      { id: 4, caption: "One move puzzle, can you spot it?", author: "@chessflow", likes: "15.2k", comments: "1.1k", src: "/uploads/demo-clip-4.mp4" },
+      { id: 5, caption: "Just one more scroll...", author: "@nudge", likes: "22.0k", comments: "1.9k", gradient: "from-rose-500 to-orange-900" },
+    ];
+
+    function IconColumn({ likes, comments }) {
+      return (
+        <div className="absolute right-3 bottom-6 flex flex-col items-center gap-4 text-xs">
+          <button className="rounded-full bg-black/45 p-2" aria-label="Like post">❤️</button>
+          <span>{likes}</span>
+          <button className="rounded-full bg-black/45 p-2" aria-label="Comment on post">💬</button>
+          <span>{comments}</span>
+          <button className="rounded-full bg-black/45 p-2" aria-label="Share post">↗️</button>
+        </div>
+      );
+    }
+
+    function App() {
+      const reduceMotion = useReducedMotion();
+      const [index, setIndex] = useState(0);
+      const [overlayVisible, setOverlayVisible] = useState(false);
+      const [isGlitching, setIsGlitching] = useState(false);
+      const [isUnzipping, setIsUnzipping] = useState(false);
+      const [unlocked, setUnlocked] = useState(false);
+      const [loopCount, setLoopCount] = useState(1);
+      const [swipeStartY, setSwipeStartY] = useState(null);
+      const lockRef = useRef(false);
+
+      const currentPost = POSTS[index];
+      const progressText = `${index + 1} / ${POSTS.length}`;
+
+      useEffect(() => {
+        const raw = Number(localStorage.getItem('nudge-loop-counter') || '0');
+        const next = Number.isFinite(raw) && raw > 0 ? raw : 1;
+        setLoopCount(next);
+      }, []);
+
+      useEffect(() => {
+        document.body.style.overflow = unlocked ? 'auto' : 'hidden';
+        return () => { document.body.style.overflow = 'auto'; };
+      }, [unlocked]);
+
+      const maybeAdvance = (delta) => {
+        if (unlocked || overlayVisible || lockRef.current) return;
+        if (Math.abs(delta) < 12) return;
+        lockRef.current = true;
+
+        setTimeout(() => { lockRef.current = false; }, 250);
+
+        if (delta > 0) {
+          setIndex((current) => Math.min(current + 1, POSTS.length - 1));
+        } else {
+          setIndex((current) => Math.max(0, current - 1));
+        }
+      };
+
+      useEffect(() => {
+        if (index !== POSTS.length - 1 || overlayVisible || unlocked || isGlitching) return;
+        setIsGlitching(true);
+        setTimeout(() => {
+          setOverlayVisible(true);
+          setIsGlitching(false);
+          setLoopCount((current) => {
+            const next = current + 1;
+            localStorage.setItem('nudge-loop-counter', String(next));
+            return next;
+          });
+        }, reduceMotion ? 0 : 420);
+      }, [index, overlayVisible, unlocked, isGlitching, reduceMotion]);
+
+      useEffect(() => {
+        const onWheel = (event) => {
+          if (unlocked) return;
+          event.preventDefault();
+          maybeAdvance(event.deltaY);
+        };
+
+        window.addEventListener('wheel', onWheel, { passive: false });
+        return () => window.removeEventListener('wheel', onWheel);
+      }, [unlocked, overlayVisible, loopCount, reduceMotion]);
+
+      const onTouchStart = (event) => {
+        if (unlocked) return;
+        setSwipeStartY(event.touches[0].clientY);
+      };
+
+      const onTouchMove = (event) => {
+        if (unlocked || swipeStartY === null) return;
+        const currentY = event.touches[0].clientY;
+        const delta = swipeStartY - currentY;
+        if (Math.abs(delta) > 25) {
+          event.preventDefault();
+          maybeAdvance(delta);
+          setSwipeStartY(currentY);
+        }
+      };
+
+      const onTouchEnd = () => setSwipeStartY(null);
+
+      const startUnzip = () => {
+        setIsUnzipping(true);
+        if (reduceMotion) {
+          setUnlocked(true);
+          setOverlayVisible(false);
+          setIsUnzipping(false);
+        }
+      };
+
+      const feedCard = (
+        <motion.div
+          key={currentPost.id}
+          initial={{ opacity: 0.3, y: reduceMotion ? 0 : 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0.2, y: reduceMotion ? 0 : -20 }}
+          transition={{ duration: reduceMotion ? 0 : 0.28 }}
+          className={`relative h-full w-full overflow-hidden rounded-2xl border border-white/15 bg-slate-900 ${isGlitching ? 'glitch' : ''}`}
+          aria-live="polite"
+        >
+          {currentPost.src ? (
+            <video src={currentPost.src} muted autoPlay loop playsInline className="h-full w-full object-cover" />
+          ) : (
+            <div className={`h-full w-full bg-gradient-to-b ${currentPost.gradient}`}></div>
+          )}
+
+          <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/10"></div>
+          <div className="absolute left-4 bottom-6 right-20">
+            <p className="text-sm text-violet-300">{currentPost.author}</p>
+            <h2 className="mt-2 text-lg font-semibold leading-tight">{currentPost.caption}</h2>
+            <p className="mt-3 text-xs text-slate-200">Swipe up / scroll to continue</p>
+          </div>
+          <IconColumn likes={currentPost.likes} comments={currentPost.comments} />
+        </motion.div>
+      );
+
+      return (
+        <div className="min-h-screen">
+          <section className="mx-auto flex min-h-screen max-w-6xl flex-col items-center justify-center gap-8 px-4 py-6">
+            <div className="text-center">
+              <p className="text-xs uppercase tracking-[0.25em] text-violet-300">Nudge</p>
+              <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Break your autopilot scroll loop.</h1>
+            </div>
+
+            <div
+              className="relative h-[76vh] max-h-[740px] w-full max-w-sm"
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+            >
+              <AnimatePresence mode="wait">{feedCard}</AnimatePresence>
+
+              <p className="absolute left-3 top-3 rounded bg-black/45 px-2 py-1 text-xs">{progressText}</p>
+
+              <AnimatePresence>
+                {overlayVisible && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/90 px-8 text-center"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Break the loop dialog"
+                  >
+                    <h2 className="text-3xl font-bold">You just did it again.</h2>
+                    <p className="mt-3 text-slate-300">Loop count: <span className="font-semibold text-white">{loopCount}</span></p>
+                    <button
+                      className="mt-6 rounded-lg bg-violet-500 px-5 py-3 font-semibold text-white hover:bg-violet-400"
+                      onClick={startUnzip}
+                    >
+                      Break the loop.
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <AnimatePresence>
+                {isUnzipping && !reduceMotion && (
+                  <>
+                    <motion.div
+                      initial={{ x: 0 }}
+                      animate={{ x: '-105%' }}
+                      transition={{ duration: 0.75, ease: 'easeInOut' }}
+                      onAnimationComplete={() => {
+                        setUnlocked(true);
+                        setOverlayVisible(false);
+                        setIsUnzipping(false);
+                      }}
+                      className="absolute left-0 top-0 z-30 h-full w-1/2 bg-slate-900"
+                    />
+                    <motion.div
+                      initial={{ x: 0 }}
+                      animate={{ x: '105%' }}
+                      transition={{ duration: 0.75, ease: 'easeInOut' }}
+                      className="absolute right-0 top-0 z-30 h-full w-1/2 bg-slate-900"
+                    />
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
+          </section>
+
+          <main className={`mx-auto max-w-6xl px-6 pb-20 transition-opacity duration-500 ${unlocked ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+            <section className="grid gap-6 py-8 sm:grid-cols-3">
+              <a href="/feed" className="rounded-xl border border-white/10 bg-slate-900 p-5">
+                <h3 className="text-lg font-semibold">Open Feed</h3>
+                <p className="mt-2 text-sm text-slate-300">Continue into the full short-video experience.</p>
+              </a>
+              <a href="/upload" className="rounded-xl border border-white/10 bg-slate-900 p-5">
+                <h3 className="text-lg font-semibold">Upload MP4</h3>
+                <p className="mt-2 text-sm text-slate-300">Drop fresh clips for new deterministic inserts.</p>
+              </a>
+              <a href="/library" className="rounded-xl border border-white/10 bg-slate-900 p-5">
+                <h3 className="text-lg font-semibold">Manage Library</h3>
+                <p className="mt-2 text-sm text-slate-300">Review and delete local videos.</p>
+              </a>
+            </section>
+
+            <section className="mt-8 rounded-2xl border border-white/10 bg-slate-900 p-6">
+              <h2 className="text-2xl font-bold">Why Nudge</h2>
+              <p className="mt-3 text-slate-300">Nudge injects intentional breaks into endless-feed behavior and routes you into actions that matter.</p>
+            </section>
+          </main>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
