@@ -460,7 +460,15 @@
       const showMiniFeed = !unlocked;
 
       return (
-        <main className="mx-auto min-h-screen max-w-md p-4">
+        <>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none fixed inset-0 z-0 flex items-center justify-center overflow-hidden select-none"
+          >
+            <span className="text-[clamp(7rem,38vw,20rem)] font-black uppercase tracking-[0.26em] text-violet-300/15">NUDGE</span>
+          </div>
+
+          <main className="relative z-10 mx-auto min-h-screen max-w-md p-4">
           {showMiniFeed ? (
             <div className="relative mt-8 h-[76vh] max-h-[740px] w-full" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
               <AnimatePresence mode="wait">
@@ -575,7 +583,8 @@
               </div>
             </section>
           )}
-        </main>
+          </main>
+        </>
       );
     }
 
