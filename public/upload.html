@@ -3,7 +3,7 @@
 <head><meta charset="utf-8"/><title>Nudge Upload</title></head>
 <body style="font-family:Arial;max-width:700px;margin:40px auto;padding:0 16px;">
   <h1>Upload MP4</h1>
-  <a href="/">Back to feed</a>
+  <a href="/feed">Back to feed</a>
   <form id="form" style="display:grid;gap:12px;margin-top:20px;">
     <input required name="title" placeholder="Video title" />
     <select name="topic" required>
@@ -37,7 +37,7 @@
       const json = await resp.json();
       if (!resp.ok) { status.textContent = json.error || 'Upload failed'; return; }
       status.textContent = 'Upload successful. Redirecting to feed...';
-      setTimeout(() => location.href = '/', 900);
+      setTimeout(() => location.href = '/feed', 900);
     });
   </script>
 </body>

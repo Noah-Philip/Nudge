@@ -51,7 +51,8 @@ function pushEvent(type, videoId = null) {
 
 http.createServer(async (req, res) => {
   try {
-    if (req.method === 'GET' && req.url === '/') return serveStatic(res, path.join(publicDir, 'index.html'));
+    if (req.method === 'GET' && req.url === '/') return serveStatic(res, path.join(publicDir, 'landing.html'));
+    if (req.method === 'GET' && req.url === '/feed') return serveStatic(res, path.join(publicDir, 'index.html'));
     if (req.method === 'GET' && req.url === '/upload') return serveStatic(res, path.join(publicDir, 'upload.html'));
     if (req.method === 'GET' && req.url === '/library') return serveStatic(res, path.join(publicDir, 'library.html'));
     if (req.method === 'GET' && req.url.startsWith('/uploads/')) return serveStatic(res, path.join(publicDir, req.url));

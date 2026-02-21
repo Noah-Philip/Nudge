@@ -6,7 +6,7 @@ Nudge is a small TikTok-like demo with local MP4 uploads, looping feed playback,
 
 ## Features
 - Upload MP4 videos (max 50MB) at `/upload`.
-- Feed at `/` with:
+- Landing page at `/` and feed at `/feed` with:
   - next/prev + mouse wheel navigation
   - looping behavior when reaching the end
   - video autoplay/loop
@@ -50,7 +50,7 @@ npm run lint
 
 ## 60-second demo script
 1. Open `/upload`, upload an MP4 with title + topic.
-2. Return to `/` and play the top video.
+2. Open `/feed` and play the top video.
 3. Scroll down (or press next) through videos.
 4. After every 3 videos, show an interactive card:
    - Complete a chess answer, then continue.

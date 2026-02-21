@@ -11,6 +11,7 @@
     <header class="flex items-center justify-between py-2">
       <h1 class="text-xl font-bold">Nudge Feed</h1>
       <nav class="text-sm space-x-3">
+        <a class="text-violet-300" href="/">Landing</a>
         <a class="text-violet-300" href="/upload">Upload</a>
         <a class="text-violet-300" href="/library">Library</a>
       </nav>
@@ -46,6 +47,7 @@
       workoutDone: { timer: false, checklist: false },
       workoutTimer: null,
       workoutSeconds: 30,
+      isMuted: false,
     };
 
     const MODULE_EVERY = 3;
@@ -119,11 +121,17 @@
       state.playbackError = false;
       card.innerHTML = `
         <h2 class="mb-2 text-lg font-semibold">${video.title}</h2>
-        <video id="feedVideo" class="w-full rounded-lg bg-black" src="${video.filePath}" autoplay muted playsinline loop controls preload="metadata"></video>
+        <video id="feedVideo" class="w-full rounded-lg bg-black" src="${video.filePath}" autoplay playsinline loop controls preload="metadata"></video>
         <p class="mt-2 text-sm text-slate-300">Topic: ${video.topic}</p>
       `;
 
       const element = document.getElementById('feedVideo');
+      element.defaultMuted = false;
+      element.muted = state.isMuted;
+      element.volume = 1;
+      element.addEventListener('volumechange', () => {
+        state.isMuted = element.muted;
+      });
       element.addEventListener('loadeddata', () => { state.playbackError = false; status.textContent = ''; });
       element.addEventListener('error', () => {
         state.playbackError = true;
