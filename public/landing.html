@@ -14,13 +14,26 @@
       filter: url(#feed-displacement-filter);
     }
 
-    .particle-canvas {
-      image-rendering: pixelated;
+    .high-contrast-freeze {
+      backdrop-filter: contrast(180%) grayscale(40%);
+      background: rgba(255, 255, 255, 0.12);
     }
 
-    .high-contrast-freeze {
-      backdrop-filter: contrast(180%) grayscale(30%);
-      background: rgba(255, 255, 255, 0.1);
+    .scanline-flash {
+      background-image: repeating-linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.35) 0px,
+        rgba(255, 255, 255, 0.35) 2px,
+        rgba(0, 0, 0, 0.15) 2px,
+        rgba(0, 0, 0, 0.15) 4px
+      );
+      mix-blend-mode: screen;
+      opacity: 0.75;
+    }
+
+    .glass-sheen {
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.02) 42%, rgba(255, 255, 255, 0.12));
+      backdrop-filter: blur(1.5px);
     }
   </style>
 </head>
@@ -38,14 +51,15 @@
     const { motion, AnimatePresence, useReducedMotion } = Motion;
 
     const POSTS = [
-      { id: 1, caption: "3 breath reset between meetings", author: "@nudge", likes: "12.4k", comments: "611", gradient: "from-violet-600 to-indigo-900" },
-      { id: 2, caption: "Small wins > big plans", author: "@coach", likes: "9.1k", comments: "488", src: "/uploads/demo-clip-2.mp4" },
-      { id: 3, caption: "Posture check + 20 sec stretch", author: "@fitloop", likes: "7.7k", comments: "245", gradient: "from-emerald-500 to-cyan-900" },
-      { id: 4, caption: "One move puzzle, can you spot it?", author: "@chessflow", likes: "15.2k", comments: "1.1k", src: "/uploads/demo-clip-4.mp4" },
-      { id: 5, caption: "Just one more scroll...", author: "@nudge", likes: "22.0k", comments: "1.9k", gradient: "from-rose-500 to-orange-900" },
+      { id: 1, caption: '3 breath reset between meetings', author: '@nudge', likes: '12.4k', comments: '611', gradient: 'from-violet-600 to-indigo-900' },
+      { id: 2, caption: 'Small wins > big plans', author: '@coach', likes: '9.1k', comments: '488', src: '/uploads/demo-clip-2.mp4' },
+      { id: 3, caption: 'Posture check + 20 sec stretch', author: '@fitloop', likes: '7.7k', comments: '245', gradient: 'from-emerald-500 to-cyan-900' },
+      { id: 4, caption: 'One move puzzle, can you spot it?', author: '@chessflow', likes: '15.2k', comments: '1.1k', src: '/uploads/demo-clip-4.mp4' },
+      { id: 5, caption: 'Just one more scroll...', author: '@nudge', likes: '22.0k', comments: '1.9k', gradient: 'from-rose-500 to-orange-900' },
     ];
 
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
     function IconColumn({ likes, comments }) {
       return (
@@ -63,6 +77,7 @@
       const reduceMotion = useReducedMotion();
       const [index, setIndex] = useState(0);
       const [overlayVisible, setOverlayVisible] = useState(false);
+      const [showShatterLayer, setShowShatterLayer] = useState(false);
       const [isUnzipping, setIsUnzipping] = useState(false);
       const [unlocked, setUnlocked] = useState(false);
       const [loopCount, setLoopCount] = useState(1);
@@ -71,187 +86,303 @@
       const [sliceOffsets, setSliceOffsets] = useState(Array(8).fill(0));
       const [rgbSplitActive, setRgbSplitActive] = useState(false);
       const [displacementActive, setDisplacementActive] = useState(false);
-      const [shakeTransform, setShakeTransform] = useState('translate3d(0,0,0) rotate(0deg)');
       const [freezeOverlay, setFreezeOverlay] = useState(false);
+      const [scanlineFlash, setScanlineFlash] = useState(false);
+      const [shakeTransform, setShakeTransform] = useState('translate3d(0,0,0) rotate(0deg)');
       const [buttonPulse, setButtonPulse] = useState(false);
+      const [fractureCenter, setFractureCenter] = useState(null);
+
       const lockRef = useRef(false);
       const glitchRunningRef = useRef(false);
       const feedRef = useRef(null);
-      const canvasRef = useRef(null);
-      const buttonRef = useRef(null);
-      const particlesRef = useRef([]);
-      const particleFrameRef = useRef(0);
+      const shatterCanvasRef = useRef(null);
+      const rafRef = useRef(0);
+      const lastSwipeRef = useRef(null);
 
       const currentPost = POSTS[index];
       const progressText = `${index + 1} / ${POSTS.length}`;
+      const lowEndDevice = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4)
+        || (navigator.deviceMemory && navigator.deviceMemory <= 4)
+        || (window.matchMedia('(max-width: 768px)').matches && navigator.maxTouchPoints > 0);
 
       useEffect(() => {
         const raw = Number(localStorage.getItem('nudge-loop-counter') || '0');
-        const next = Number.isFinite(raw) && raw > 0 ? raw : 1;
-        setLoopCount(next);
+        setLoopCount(Number.isFinite(raw) && raw > 0 ? raw : 1);
       }, []);
 
       useEffect(() => {
         document.body.style.overflow = unlocked ? 'auto' : 'hidden';
-        return () => { document.body.style.overflow = 'auto'; };
+        return () => {
+          document.body.style.overflow = 'auto';
+          cancelAnimationFrame(rafRef.current);
+        };
       }, [unlocked]);
 
-      useEffect(() => () => cancelAnimationFrame(particleFrameRef.current), []);
+      useEffect(() => {
+        const video = feedRef.current?.querySelector('video');
+        if (!video) return;
+        if (showShatterLayer || freezeOverlay || overlayVisible) {
+          video.pause();
+        } else {
+          video.play().catch(() => undefined);
+        }
+      }, [showShatterLayer, freezeOverlay, overlayVisible, index]);
 
       const pulseButton = () => {
         setButtonPulse(true);
-        setTimeout(() => setButtonPulse(false), 240);
+        setTimeout(() => setButtonPulse(false), 220);
       };
 
-      const startParticleEffect = () => {
-        const canvas = canvasRef.current;
-        const feed = feedRef.current;
-        if (!canvas || !feed) return;
+      const buildSnapshotCanvas = (rect, center) => {
+        const off = document.createElement('canvas');
+        off.width = Math.max(1, Math.floor(rect.width));
+        off.height = Math.max(1, Math.floor(rect.height));
+        const ctx = off.getContext('2d');
+        if (!ctx) return null;
+
+        try {
+          const video = feedRef.current?.querySelector('video');
+          if (video && video.readyState >= 2) {
+            ctx.drawImage(video, 0, 0, off.width, off.height);
+          } else {
+            const gradient = ctx.createLinearGradient(0, 0, off.width, off.height);
+            gradient.addColorStop(0, '#7c3aed');
+            gradient.addColorStop(1, '#0f172a');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, off.width, off.height);
+          }
+
+          const dim = ctx.createLinearGradient(0, 0, 0, off.height);
+          dim.addColorStop(0, 'rgba(0,0,0,0.08)');
+          dim.addColorStop(1, 'rgba(0,0,0,0.62)');
+          ctx.fillStyle = dim;
+          ctx.fillRect(0, 0, off.width, off.height);
+
+          ctx.fillStyle = 'rgba(255,255,255,0.9)';
+          ctx.font = '600 16px system-ui, sans-serif';
+          ctx.fillText(currentPost.author, 18, off.height - 48);
+          ctx.font = '700 20px system-ui, sans-serif';
+          ctx.fillText(currentPost.caption.slice(0, 34), 18, off.height - 22);
+
+          const shine = ctx.createRadialGradient(center.x, center.y, 12, center.x, center.y, rect.width * 0.7);
+          shine.addColorStop(0, 'rgba(255,255,255,0.26)');
+          shine.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = shine;
+          ctx.fillRect(0, 0, off.width, off.height);
+
+          return off;
+        } catch (_) {
+          return null;
+        }
+      };
+
+      const buildShardTriangles = (width, height, center, reduced) => {
+        const count = reduced ? 16 : Math.floor(70 + Math.random() * 40);
+        const shards = [];
+        const cx = center.x;
+        const cy = center.y;
+        for (let i = 0; i < count; i += 1) {
+          const a0 = (i / count) * Math.PI * 2;
+          const a1 = ((i + 1) / count) * Math.PI * 2;
+          const r0 = Math.max(width, height) * (0.35 + Math.random() * 0.75);
+          const r1 = Math.max(width, height) * (0.35 + Math.random() * 0.75);
+          const p0 = [clamp(cx + Math.cos(a0) * r0, 0, width), clamp(cy + Math.sin(a0) * r0, 0, height)];
+          const p1 = [clamp(cx + Math.cos(a1) * r1, 0, width), clamp(cy + Math.sin(a1) * r1, 0, height)];
+          const p2 = [clamp(cx + (Math.random() - 0.5) * 26, 0, width), clamp(cy + (Math.random() - 0.5) * 26, 0, height)];
+          shards.push({ points: [p0, p1, p2] });
+        }
+        return shards.slice(0, 90);
+      };
+
+      const runShatterAnimation = async () => {
+        const canvas = shatterCanvasRef.current;
+        const feedRect = feedRef.current?.getBoundingClientRect();
+        if (!canvas || !feedRect) return;
 
         const ctx = canvas.getContext('2d');
-        const rect = feed.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
-        const count = reduceMotion ? 30 : 120;
-        const target = {
-          x: rect.width / 2,
-          y: rect.height * 0.63,
-        };
+        if (!ctx) return;
 
-        canvas.width = Math.floor(rect.width * dpr);
-        canvas.height = Math.floor(rect.height * dpr);
-        canvas.style.width = `${rect.width}px`;
-        canvas.style.height = `${rect.height}px`;
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.floor(feedRect.width * dpr);
+        canvas.height = Math.floor(feedRect.height * dpr);
+        canvas.style.width = `${feedRect.width}px`;
+        canvas.style.height = `${feedRect.height}px`;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-        const pool = particlesRef.current;
-        pool.length = 0;
+        const fallbackCenter = { x: feedRect.width / 2, y: feedRect.height / 2 };
+        const center = lastSwipeRef.current
+          ? {
+            x: clamp(lastSwipeRef.current.x - feedRect.left, 0, feedRect.width),
+            y: clamp(lastSwipeRef.current.y - feedRect.top, 0, feedRect.height),
+          }
+          : fallbackCenter;
+        setFractureCenter(center);
 
-        for (let i = 0; i < count; i += 1) {
-          const angle = Math.random() * Math.PI * 2;
-          const speed = 1.6 + Math.random() * 3.4;
-          pool.push({
-            x: Math.random() * rect.width,
-            y: Math.random() * rect.height,
+        const fracturePointCount = Math.floor(8 + Math.random() * 7);
+        const fracturePoints = Array.from({ length: fracturePointCount }, () => ({
+          x: center.x + (Math.random() - 0.5) * 48,
+          y: center.y + (Math.random() - 0.5) * 48,
+        }));
+
+        const snapshot = buildSnapshotCanvas(feedRect, center);
+        const reduced = reduceMotion || lowEndDevice;
+        const baseShards = buildShardTriangles(feedRect.width, feedRect.height, center, reduced);
+
+        const shards = baseShards.map((shard) => {
+          const centroid = shard.points.reduce((acc, point) => ({ x: acc.x + point[0], y: acc.y + point[1] }), { x: 0, y: 0 });
+          centroid.x /= shard.points.length;
+          centroid.y /= shard.points.length;
+          const angle = Math.atan2(centroid.y - center.y, centroid.x - center.x);
+          const speed = reduced ? 80 + Math.random() * 120 : 200 + Math.random() * 700;
+          return {
+            points: shard.points,
+            x: 0,
+            y: 0,
+            angle: 0,
+            alpha: 1,
+            spin: reduced ? 0 : (Math.random() - 0.5) * 7,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
-            size: 1 + Math.random() * 2.5,
-            life: 0,
-            stuck: false,
-          });
-        }
+            fractureBias: fracturePoints[Math.floor(Math.random() * fracturePoints.length)],
+          };
+        });
 
-        const burstDuration = reduceMotion ? 180 : 300;
-        const totalDuration = reduceMotion ? 560 : 900;
+        const gravity = reduced ? 0 : 1500;
         const start = performance.now();
+        let previous = start;
+
+        const drawShard = (shard, blurPass) => {
+          ctx.save();
+          ctx.translate(shard.x, shard.y);
+          ctx.rotate(shard.angle);
+
+          ctx.beginPath();
+          const [first, ...rest] = shard.points;
+          ctx.moveTo(first[0], first[1]);
+          rest.forEach((point) => ctx.lineTo(point[0], point[1]));
+          ctx.closePath();
+          ctx.clip();
+
+          if (snapshot) {
+            ctx.drawImage(snapshot, 0, 0, feedRect.width, feedRect.height);
+          } else {
+            ctx.fillStyle = 'rgba(255,255,255,0.28)';
+            ctx.fill();
+          }
+
+          ctx.globalAlpha = blurPass ? shard.alpha * 0.24 : shard.alpha;
+          ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+          ctx.lineWidth = 0.9;
+          ctx.stroke();
+          ctx.restore();
+        };
 
         const tick = (now) => {
           const elapsed = now - start;
-          const burst = elapsed < burstDuration;
-          ctx.clearRect(0, 0, rect.width, rect.height);
+          const dt = Math.min(0.032, (now - previous) / 1000 || 0.016);
+          previous = now;
+          const fade = clamp((elapsed - 900) / 180, 0, 1);
 
-          let reached = 0;
-          for (let i = 0; i < pool.length; i += 1) {
-            const p = pool[i];
-            p.life += 1;
-
-            if (!burst) {
-              const dx = target.x - p.x;
-              const dy = target.y - p.y;
-              const dist = Math.max(6, Math.hypot(dx, dy));
-              const pull = reduceMotion ? 0.08 : 0.14;
-              p.vx = p.vx * 0.92 + (dx / dist) * pull * dist * 0.07;
-              p.vy = p.vy * 0.92 + (dy / dist) * pull * dist * 0.07;
-              if (dist < 10) {
-                p.stuck = true;
-                reached += 1;
-              }
+          ctx.clearRect(0, 0, feedRect.width, feedRect.height);
+          shards.forEach((shard) => {
+            const dx = shard.fractureBias.x - center.x;
+            const dy = shard.fractureBias.y - center.y;
+            const wave = elapsed < 120 ? (1 - elapsed / 120) * 350 : 0;
+            if (!reduced && wave > 0) {
+              const dist = Math.max(8, Math.hypot(dx, dy));
+              shard.vx += (dx / dist) * wave * dt;
+              shard.vy += (dy / dist) * wave * dt;
             }
 
-            if (p.stuck) {
-              p.x += (target.x - p.x) * 0.34;
-              p.y += (target.y - p.y) * 0.34;
-              p.size *= 0.9;
-            } else {
-              p.x += p.vx;
-              p.y += p.vy;
+            shard.vx *= reduced ? 0.94 : 0.985;
+            shard.vy = shard.vy * (reduced ? 0.92 : 0.984) + gravity * dt;
+            shard.x += shard.vx * dt;
+            shard.y += shard.vy * dt;
+            shard.angle += shard.spin * dt;
+            shard.alpha = 1 - fade;
+
+            if (!reduced && Math.abs(shard.vx) + Math.abs(shard.vy) > 380) {
+              ctx.save();
+              ctx.globalAlpha = 0.14 * shard.alpha;
+              ctx.filter = 'blur(1px)';
+              drawShard(shard, true);
+              ctx.restore();
             }
+            drawShard(shard, false);
+          });
 
-            ctx.fillStyle = p.stuck ? 'rgba(167,139,250,0.75)' : 'rgba(255,255,255,0.85)';
-            ctx.fillRect(p.x, p.y, p.size, p.size);
+          if (elapsed < 1080) {
+            rafRef.current = requestAnimationFrame(tick);
+          } else {
+            ctx.clearRect(0, 0, feedRect.width, feedRect.height);
+            setShowShatterLayer(false);
+            setFreezeOverlay(false);
           }
-
-          if (elapsed > totalDuration) {
-            ctx.clearRect(0, 0, rect.width, rect.height);
-            pulseButton();
-            return;
-          }
-
-          if (reached > pool.length * 0.45 && overlayVisible) {
-            pulseButton();
-          }
-
-          particleFrameRef.current = requestAnimationFrame(tick);
         };
 
-        cancelAnimationFrame(particleFrameRef.current);
-        particleFrameRef.current = requestAnimationFrame(tick);
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = requestAnimationFrame(tick);
       };
 
-      const runGlitchSequence = async () => {
+      const runGlitchAndShatter = async () => {
         if (glitchRunningRef.current) return;
         glitchRunningRef.current = true;
 
-        startParticleEffect();
-
-        if (reduceMotion) {
-          setFreezeOverlay(true);
-          setTimeout(() => pulseButton(), 140);
-          await sleep(800);
-          setFreezeOverlay(false);
-          return;
-        }
-
+        setShowShatterLayer(true);
+        setFreezeOverlay(true);
+        setScanlineFlash(true);
         setFrameTearActive(true);
-        for (let frame = 0; frame < 3; frame += 1) {
-          setSliceOffsets(Array.from({ length: 8 }, () => Math.round((Math.random() * 80) - 40)));
-          await sleep(70);
+
+        if (!reduceMotion) {
+          for (let frame = 0; frame < 4; frame += 1) {
+            setSliceOffsets(Array.from({ length: 8 }, () => Math.round((Math.random() * 120) - 60)));
+            await sleep(90);
+          }
+          setRgbSplitActive(true);
+          setDisplacementActive(true);
+          const start = performance.now();
+          await new Promise((resolve) => {
+            const shake = (now) => {
+              const t = clamp((now - start) / 380, 0, 1);
+              const amp = (1 - t) * 8;
+              setShakeTransform(`translate3d(${(Math.random() * 2 - 1) * amp}px, ${(Math.random() * 2 - 1) * amp * 0.6}px, 0) rotate(${(Math.random() * 2 - 1) * amp * 0.12}deg)`);
+              if (t < 1) {
+                requestAnimationFrame(shake);
+              } else {
+                setShakeTransform('translate3d(0,0,0) rotate(0deg)');
+                resolve();
+              }
+            };
+            requestAnimationFrame(shake);
+          });
+        } else {
+          await sleep(220);
         }
+
         setFrameTearActive(false);
-
-        setRgbSplitActive(true);
-        await sleep(160);
-        setDisplacementActive(true);
-        await sleep(150);
-        setDisplacementActive(false);
         setRgbSplitActive(false);
+        setDisplacementActive(false);
+        setScanlineFlash(false);
 
-        const shakeStart = performance.now();
-        await new Promise((resolve) => {
-          const shake = (now) => {
-            const elapsed = now - shakeStart;
-            const t = Math.min(elapsed / 420, 1);
-            const amp = (1 - t) * 7;
-            const x = (Math.random() * 2 - 1) * amp;
-            const y = (Math.random() * 2 - 1) * amp * 0.7;
-            const r = (Math.random() * 2 - 1) * amp * 0.16;
-            setShakeTransform(`translate3d(${x}px, ${y}px, 0) rotate(${r}deg)`);
-            if (t < 1) {
-              requestAnimationFrame(shake);
-            } else {
-              setShakeTransform('translate3d(0,0,0) rotate(0deg)');
-              resolve();
-            }
-          };
-          requestAnimationFrame(shake);
+        await runShatterAnimation();
+        await sleep(reduceMotion ? 340 : 200);
+
+        setOverlayVisible(true);
+        setLoopCount((current) => {
+          const next = current + 1;
+          localStorage.setItem('nudge-loop-counter', String(next));
+          return next;
         });
+        pulseButton();
+        glitchRunningRef.current = false;
       };
 
       const maybeAdvance = (delta) => {
-        if (unlocked || overlayVisible || lockRef.current) return;
+        if (unlocked || overlayVisible || showShatterLayer || lockRef.current) return;
         if (Math.abs(delta) < 12) return;
-        lockRef.current = true;
 
-        setTimeout(() => { lockRef.current = false; }, 250);
+        lockRef.current = true;
+        setTimeout(() => { lockRef.current = false; }, 240);
 
         if (delta > 0) {
           setIndex((current) => Math.min(current + 1, POSTS.length - 1));
@@ -262,50 +393,46 @@
 
       useEffect(() => {
         if (index !== POSTS.length - 1 || overlayVisible || unlocked || glitchRunningRef.current) return;
-
-        runGlitchSequence().then(() => {
-          setOverlayVisible(true);
-          setLoopCount((current) => {
-            const next = current + 1;
-            localStorage.setItem('nudge-loop-counter', String(next));
-            return next;
-          });
-          glitchRunningRef.current = false;
-        });
+        runGlitchAndShatter();
       }, [index, overlayVisible, unlocked]);
 
       useEffect(() => {
         const onWheel = (event) => {
           if (unlocked) return;
           event.preventDefault();
+          lastSwipeRef.current = { x: event.clientX || window.innerWidth / 2, y: event.clientY || window.innerHeight / 2 };
           maybeAdvance(event.deltaY);
         };
 
         window.addEventListener('wheel', onWheel, { passive: false });
         return () => window.removeEventListener('wheel', onWheel);
-      }, [unlocked]);
+      }, [unlocked, overlayVisible, showShatterLayer]);
 
       const onTouchStart = (event) => {
         if (unlocked) return;
-        setSwipeStartY(event.touches[0].clientY);
+        const touch = event.touches[0];
+        setSwipeStartY(touch.clientY);
+        lastSwipeRef.current = { x: touch.clientX, y: touch.clientY };
       };
 
       const onTouchMove = (event) => {
         if (unlocked || swipeStartY === null) return;
-        const currentY = event.touches[0].clientY;
-        const delta = swipeStartY - currentY;
+        const touch = event.touches[0];
+        const delta = swipeStartY - touch.clientY;
         if (Math.abs(delta) > 25) {
           event.preventDefault();
+          lastSwipeRef.current = { x: touch.clientX, y: touch.clientY };
           maybeAdvance(delta);
-          setSwipeStartY(currentY);
+          setSwipeStartY(touch.clientY);
         }
       };
 
       const onTouchEnd = () => setSwipeStartY(null);
+
       const feedLayer = useMemo(() => (
         <>
           {currentPost.src ? (
-            <video src={currentPost.src} muted autoPlay loop playsInline className="h-full w-full object-cover" />
+            <video src={currentPost.src} muted autoPlay={!showShatterLayer && !overlayVisible} loop playsInline className="h-full w-full object-cover" />
           ) : (
             <div className={`h-full w-full bg-gradient-to-b ${currentPost.gradient}`}></div>
           )}
@@ -317,109 +444,128 @@
           </div>
           <IconColumn likes={currentPost.likes} comments={currentPost.comments} />
         </>
-      ), [currentPost]);
+      ), [currentPost, showShatterLayer, overlayVisible]);
 
-      const feedCard = (
-        <motion.div
-          key={currentPost.id}
-          initial={{ opacity: 0.3, y: reduceMotion ? 0 : 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0.2, y: reduceMotion ? 0 : -20 }}
-          transition={{ duration: reduceMotion ? 0 : 0.28 }}
-          className="relative h-full w-full overflow-hidden rounded-2xl border border-white/15 bg-slate-900"
-          style={{ transform: shakeTransform }}
-          aria-live="polite"
-          ref={feedRef}
-        >
-          <div className={`absolute inset-0 ${displacementActive ? 'feed-displacement' : ''}`}>
-            {feedLayer}
-          </div>
-
-          {rgbSplitActive && (
-            <>
-              <div className="absolute inset-0 mix-blend-screen opacity-70" style={{ transform: 'translateX(-6px)', filter: 'hue-rotate(335deg)' }}>{feedLayer}</div>
-              <div className="absolute inset-0 mix-blend-screen opacity-70" style={{ transform: 'translateX(6px)', filter: 'hue-rotate(180deg)' }}>{feedLayer}</div>
-            </>
-          )}
-
-          {frameTearActive && Array.from({ length: 8 }).map((_, sliceIndex) => {
-            const top = sliceIndex * 12.5;
-            return (
-              <div key={`slice-${sliceIndex}`} className="absolute left-0 w-full overflow-hidden" style={{ top: `${top}%`, height: '12.5%' }}>
-                <div className="absolute left-0 w-full h-full" style={{ transform: `translateX(${sliceOffsets[sliceIndex]}px) translateY(-${top}%)`, height: '800%' }}>
-                  {feedLayer}
-                </div>
-              </div>
-            );
-          })}
-
-          {freezeOverlay && <div className="high-contrast-freeze absolute inset-0"></div>}
-          <canvas ref={canvasRef} className="particle-canvas absolute inset-0 z-20 pointer-events-none"></canvas>
-        </motion.div>
-      );
+      const showMiniFeed = !unlocked;
 
       return (
-        <main className="mx-auto flex min-h-screen max-w-md items-center justify-center p-4">
-          <div
-            className="relative h-[76vh] max-h-[740px] w-full"
-            onTouchStart={onTouchStart}
-            onTouchMove={onTouchMove}
-            onTouchEnd={onTouchEnd}
-          >
-            <AnimatePresence mode="wait">{feedCard}</AnimatePresence>
-
-            <p className="absolute left-3 top-3 rounded bg-black/45 px-2 py-1 text-xs">{progressText}</p>
-            <a href="/feed" className="absolute right-3 top-3 rounded bg-violet-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-400">Open Feed</a>
-
-            <AnimatePresence>
-              {overlayVisible && (
+        <main className="mx-auto min-h-screen max-w-md p-4">
+          {showMiniFeed ? (
+            <div className="relative mt-8 h-[76vh] max-h-[740px] w-full" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+              <AnimatePresence mode="wait">
                 <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/90 px-8 text-center"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="Break the loop dialog"
+                  key={currentPost.id}
+                  initial={{ opacity: 0.3, y: reduceMotion ? 0 : 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0.2, y: reduceMotion ? 0 : -20 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.28 }}
+                  className="relative h-full w-full overflow-hidden rounded-2xl border border-white/15 bg-slate-900"
+                  style={{ transform: shakeTransform }}
+                  ref={feedRef}
                 >
-                  <h2 className="text-3xl font-bold">You just did it again.</h2>
-                  <p className="mt-3 text-slate-300">Loop count: <span className="font-semibold text-white">{loopCount}</span></p>
-                  <button
-                    ref={buttonRef}
-                    className="mt-6 rounded-lg bg-violet-500 px-5 py-3 font-semibold text-white hover:bg-violet-400"
-                    style={{ transform: buttonPulse ? 'scale(1.06)' : 'scale(1)', transition: 'transform 120ms ease-out' }}
-                    onClick={() => { window.location.href = '/feed'; }}
-                  >
-                    Break the loop.
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                  <div className={`absolute inset-0 ${displacementActive ? 'feed-displacement' : ''}`}>{feedLayer}</div>
 
-            <AnimatePresence>
-              {isUnzipping && !reduceMotion && (
-                <>
+                  {rgbSplitActive && (
+                    <>
+                      <div className="absolute inset-0 mix-blend-screen opacity-70" style={{ transform: 'translateX(-6px)', filter: 'hue-rotate(335deg)' }}>{feedLayer}</div>
+                      <div className="absolute inset-0 mix-blend-screen opacity-70" style={{ transform: 'translateX(6px)', filter: 'hue-rotate(180deg)' }}>{feedLayer}</div>
+                    </>
+                  )}
+
+                  {frameTearActive && Array.from({ length: 8 }).map((_, sliceIndex) => {
+                    const top = sliceIndex * 12.5;
+                    return (
+                      <div key={`slice-${sliceIndex}`} className="absolute left-0 w-full overflow-hidden" style={{ top: `${top}%`, height: '12.5%' }}>
+                        <div className="absolute left-0 h-full w-full" style={{ transform: `translateX(${sliceOffsets[sliceIndex]}px) translateY(-${top}%)`, height: '800%' }}>{feedLayer}</div>
+                      </div>
+                    );
+                  })}
+
+                  {freezeOverlay && <div className="high-contrast-freeze absolute inset-0"></div>}
+                  {scanlineFlash && <div className="scanline-flash absolute inset-0"></div>}
+                </motion.div>
+              </AnimatePresence>
+
+              <p className="absolute left-3 top-3 rounded bg-black/45 px-2 py-1 text-xs">{progressText}</p>
+
+              <AnimatePresence>
+                {showShatterLayer && (
                   <motion.div
-                    initial={{ x: 0 }}
-                    animate={{ x: '-105%' }}
-                    transition={{ duration: 0.75, ease: 'easeInOut' }}
-                    onAnimationComplete={() => {
-                      setUnlocked(true);
-                      setOverlayVisible(false);
-                      setIsUnzipping(false);
-                    }}
-                    className="absolute left-0 top-0 z-40 h-full w-1/2 bg-slate-900"
-                  />
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="pointer-events-none fixed inset-0 z-30 flex items-center justify-center"
+                    aria-hidden="true"
+                  >
+                    <div className="relative h-[76vh] max-h-[740px] w-[min(100%,28rem)] overflow-hidden rounded-2xl border border-white/20">
+                      <canvas ref={shatterCanvasRef} className="absolute inset-0 h-full w-full" />
+                      <div className="glass-sheen absolute inset-0"></div>
+                      {fractureCenter && <div className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/30 blur-sm" style={{ left: fractureCenter.x, top: fractureCenter.y }}></div>}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <AnimatePresence>
+                {overlayVisible && (
                   <motion.div
-                    initial={{ x: 0 }}
-                    animate={{ x: '105%' }}
-                    transition={{ duration: 0.75, ease: 'easeInOut' }}
-                    className="absolute right-0 top-0 z-40 h-full w-1/2 bg-slate-900"
-                  />
-                </>
-              )}
-            </AnimatePresence>
-          </div>
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-slate-950/90 px-8 text-center"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Break the loop dialog"
+                  >
+                    <h2 className="text-3xl font-bold">You just did it again.</h2>
+                    <p className="mt-3 text-slate-300">Loop count: <span className="font-semibold text-white">{loopCount}</span></p>
+                    <button
+                      className="mt-6 rounded-lg bg-violet-500 px-5 py-3 font-semibold text-white hover:bg-violet-400"
+                      style={{ transform: buttonPulse ? 'scale(1.06)' : 'scale(1)', transition: 'transform 120ms ease-out' }}
+                      onClick={() => { if (reduceMotion) { setUnlocked(true); setOverlayVisible(false); } else { setIsUnzipping(true); } }}
+                    >
+                      Break the loop
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <AnimatePresence>
+                {isUnzipping && !reduceMotion && (
+                  <>
+                    <motion.div
+                      initial={{ x: 0 }}
+                      animate={{ x: '-105%' }}
+                      transition={{ duration: 0.75, ease: 'easeInOut' }}
+                      onAnimationComplete={() => {
+                        setUnlocked(true);
+                        setOverlayVisible(false);
+                        setIsUnzipping(false);
+                      }}
+                      className="absolute left-0 top-0 z-50 h-full w-1/2 bg-slate-900"
+                    />
+                    <motion.div
+                      initial={{ x: 0 }}
+                      animate={{ x: '105%' }}
+                      transition={{ duration: 0.75, ease: 'easeInOut' }}
+                      className="absolute right-0 top-0 z-50 h-full w-1/2 bg-slate-900"
+                    />
+                  </>
+                )}
+              </AnimatePresence>
+
+            </div>
+          ) : (
+            <section className="mx-auto mt-10 rounded-2xl border border-white/10 bg-slate-900/60 p-6">
+              <p className="text-xs uppercase tracking-[0.2em] text-violet-300">Real landing content</p>
+              <h1 className="mt-3 text-3xl font-bold">Break scroll loops with deterministic nudges.</h1>
+              <p className="mt-3 text-slate-300">Nudge inserts lightweight interactive moments that turn passive swiping into intentional action. Built for local demos with predictable behavior and no external services.</p>
+              <div className="mt-6 flex gap-3">
+                <a href="/feed" className="rounded-lg bg-violet-500 px-4 py-2 font-semibold hover:bg-violet-400">Open full feed</a>
+                <a href="/upload" className="rounded-lg border border-white/20 px-4 py-2">Upload MP4</a>
+              </div>
+            </section>
+          )}
         </main>
       );
     }
