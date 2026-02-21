@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"/><title>Nudge Upload</title></head>
+<body style="font-family:Arial;max-width:700px;margin:40px auto;padding:0 16px;">
+  <h1>Upload MP4</h1>
+  <a href="/">Back to feed</a>
+  <form id="form" style="display:grid;gap:12px;margin-top:20px;">
+    <input required name="title" placeholder="Video title" />
+    <select name="topic" required>
+      <option value="fitness">fitness</option>
+      <option value="chess">chess</option>
+      <option value="mindset">mindset</option>
+      <option value="productivity">productivity</option>
+    </select>
+    <input required type="file" name="video" accept="video/mp4" />
+    <button type="submit">Upload</button>
+  </form>
+  <p id="status"></p>
+  <script>
+    const form = document.getElementById('form');
+    const status = document.getElementById('status');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const file = fd.get('video');
+      if (!file || file.type !== 'video/mp4') { status.textContent = 'Only MP4 files are allowed.'; return; }
+      if (file.size > 50 * 1024 * 1024) { status.textContent = 'File too large (max 50MB).'; return; }
+      status.textContent = 'Uploading...';
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = '';
+      bytes.forEach((b) => binary += String.fromCharCode(b));
+      const contentBase64 = btoa(binary);
+      const resp = await fetch('/api/upload', {
+        method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({title:fd.get('title'), topic:fd.get('topic'), filename:file.name, mimeType:file.type, contentBase64})
+      });
+      const json = await resp.json();
+      if (!resp.ok) { status.textContent = json.error || 'Upload failed'; return; }
+      status.textContent = 'Upload successful. Redirecting to feed...';
+      setTimeout(() => location.href = '/', 900);
+    });
+  </script>
+</body>
+</html>
