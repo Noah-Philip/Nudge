@@ -708,6 +708,13 @@
       });
     }
 
+    function typingWordsPerSecond() {
+      const elapsedSeconds = state.typingNudge.elapsedTicks / 8;
+      if (elapsedSeconds < 1) return 0;
+      const rampProgress = Math.min(1, (elapsedSeconds - 1) / 12);
+      return 1 + (2 * rampProgress);
+    }
+
     function finishTypingRound() {
       clearTypingTimer();
       state.typingNudge.started = false;
@@ -727,7 +734,7 @@
         state.typingNudge.timeLeft = Math.max(0, state.typingNudge.timeLeft - 1);
       }
 
-      const spawnRate = Math.max(0.2, 0.62 - ((30 - state.typingNudge.timeLeft) * 0.012));
+      const spawnRate = typingWordsPerSecond() / 8;
       state.typingNudge.spawnCarry += spawnRate;
       while (state.typingNudge.spawnCarry >= 1) {
         spawnTypingWord();
@@ -769,6 +776,7 @@
     function startTypingRound() {
       resetTypingNudgeState();
       state.typingNudge.started = true;
+      // Start gently with a single word, then ramp up over time.
       spawnTypingWord();
       trackTypingEvent('started');
       state.typingTimer = setInterval(tickTypingGame, 125);
