@@ -5,16 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Nudge Feed</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes nudgePulse {
+      0%, 100% { opacity: 0.65; transform: translateY(0); }
+      50% { opacity: 1; transform: translateY(-1px); }
+    }
+
+    .nudge-pulse {
+      animation: nudgePulse 1.8s ease-in-out infinite;
+    }
+  </style>
 </head>
 <body class="bg-slate-950 text-slate-100">
   <main class="mx-auto max-w-md min-h-screen p-4">
     <header class="flex items-center justify-between py-2">
       <h1 class="text-xl font-bold">Nudge Feed</h1>
-      <nav class="text-sm space-x-3">
-        <a class="text-violet-300" href="/">Landing</a>
-        <a class="text-violet-300" href="/upload">Upload</a>
-        <a class="text-violet-300" href="/library">Library</a>
-      </nav>
+      <div class="flex items-center gap-3">
+        <button id="snoozeBtn" class="rounded-lg border border-violet-300/40 bg-violet-400/10 px-3 py-1 text-xs font-semibold text-violet-200">Snooze nudges (10)</button>
+        <nav class="text-sm space-x-3">
+          <a class="text-violet-300" href="/">Landing</a>
+          <a class="text-violet-300" href="/upload">Upload</a>
+          <a class="text-violet-300" href="/library">Library</a>
+        </nav>
+      </div>
     </header>
 
     <section id="card" class="mt-3 rounded-xl border border-white/10 bg-slate-900 p-3"></section>
@@ -26,6 +39,7 @@
     </div>
 
     <p id="meta" class="mt-3 text-xs text-slate-400"></p>
+    <p id="snoozeMeta" class="mt-2 text-xs text-violet-300"></p>
     <p id="status" class="mt-2 text-sm text-amber-300"></p>
   </main>
 
@@ -33,9 +47,11 @@
     const card = document.getElementById('card');
     const meta = document.getElementById('meta');
     const status = document.getElementById('status');
+    const snoozeMeta = document.getElementById('snoozeMeta');
     const prevBtn = document.getElementById('prevBtn');
     const nextBtn = document.getElementById('nextBtn');
     const likeBtn = document.getElementById('likeBtn');
+    const snoozeBtn = document.getElementById('snoozeBtn');
 
     const state = {
       videos: [],
@@ -49,12 +65,31 @@
       workoutSeconds: 30,
       isMuted: false,
       typingStartedAt: 0,
+      snoozeRemaining: 0,
     };
 
     const MODULE_EVERY = 3;
     const MODULE_SEQUENCE = ['chess', 'workout', 'typing'];
 
     const moduleTypeForIndex = (index) => MODULE_SEQUENCE[index % MODULE_SEQUENCE.length];
+
+    function updateSnoozeUI() {
+      if (state.snoozeRemaining > 0) {
+        snoozeMeta.textContent = `Nudges snoozed (${state.snoozeRemaining} videos left)`;
+        snoozeBtn.textContent = `Snoozed (${state.snoozeRemaining})`;
+        snoozeBtn.className = 'rounded-lg border border-emerald-300/50 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-200';
+      } else {
+        snoozeMeta.textContent = '';
+        snoozeBtn.textContent = 'Snooze nudges (10)';
+        snoozeBtn.className = 'rounded-lg border border-violet-300/40 bg-violet-400/10 px-3 py-1 text-xs font-semibold text-violet-200';
+      }
+    }
+
+    function setCardMode(isModule) {
+      card.className = isModule
+        ? 'mt-3 rounded-xl border border-violet-300/30 bg-violet-900/20 p-3'
+        : 'mt-3 rounded-xl border border-white/10 bg-slate-900 p-3';
+    }
 
     async function loadVideos() {
       status.textContent = 'Loading videos...';
@@ -120,6 +155,7 @@
     }
 
     function showVideo(video) {
+      setCardMode(false);
       state.playbackError = false;
       card.innerHTML = `
         <h2 class="mb-2 text-lg font-semibold">${video.title}</h2>
@@ -145,7 +181,12 @@
     }
 
     function renderChessModule() {
+      setCardMode(true);
       card.innerHTML = `
+        <div class="mb-2 flex items-center justify-between">
+          <span class="rounded-full border border-violet-200/50 bg-violet-300/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-violet-100">Nudge</span>
+          <span class="nudge-pulse text-xs font-medium text-violet-200">Pause scroll - try this</span>
+        </div>
         <h2 class="text-lg font-semibold">Chess Puzzle</h2>
         <p class="mt-2 text-sm text-slate-300">White to move. Which tactic wins material?</p>
         <div class="mt-3 grid gap-2">
@@ -291,7 +332,12 @@
     function renderWorkoutModule() {
       state.workoutDone = { timer: false, checklist: false };
       state.workoutSeconds = 30;
+      setCardMode(true);
       card.innerHTML = `
+        <div class="mb-2 flex items-center justify-between">
+          <span class="rounded-full border border-violet-200/50 bg-violet-300/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-violet-100">Nudge</span>
+          <span class="nudge-pulse text-xs font-medium text-violet-200">Pause scroll - try this</span>
+        </div>
         <h2 class="text-lg font-semibold">Workout Nudge</h2>
         <p class="mt-2 text-sm text-slate-300">30-second micro reset + checklist.</p>
         <div class="mt-3 rounded-lg bg-slate-800 p-3">
@@ -316,7 +362,12 @@
     function renderTypingModule() {
       const prompt = 'stay focused and keep shipping';
       state.typingStartedAt = Date.now();
+      setCardMode(true);
       card.innerHTML = `
+        <div class="mb-2 flex items-center justify-between">
+          <span class="rounded-full border border-violet-200/50 bg-violet-300/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-violet-100">Nudge</span>
+          <span class="nudge-pulse text-xs font-medium text-violet-200">Pause scroll - try this</span>
+        </div>
         <h2 class="text-lg font-semibold">Typing Sprint</h2>
         <p class="mt-2 text-sm text-slate-300">Type this phrase exactly, then submit.</p>
         <p class="mt-3 rounded-lg bg-slate-800 p-3 text-sm font-medium text-sky-200">${prompt}</p>
@@ -391,6 +442,7 @@
     }
 
     function render() {
+      updateSnoozeUI();
       prevBtn.disabled = !state.videos.length;
       nextBtn.disabled = !state.videos.length;
       likeBtn.disabled = !state.videos.length || state.showingModule;
@@ -419,7 +471,10 @@
         state.cursor = (state.cursor + direction + state.videos.length) % state.videos.length;
         if (direction > 0) {
           state.moduleTicker += 1;
-          if (state.moduleTicker % MODULE_EVERY === 0) {
+          if (state.snoozeRemaining > 0) {
+            state.snoozeRemaining -= 1;
+          }
+          if (state.snoozeRemaining === 0 && state.moduleTicker % MODULE_EVERY === 0) {
             state.showingModule = true;
           }
         }
@@ -431,6 +486,12 @@
     prevBtn.addEventListener('click', () => step(-1));
     nextBtn.addEventListener('click', () => step(1));
     likeBtn.addEventListener('click', likeCurrent);
+    snoozeBtn.addEventListener('click', () => {
+      state.snoozeRemaining = 10;
+      state.showingModule = false;
+      updateSnoozeUI();
+      render();
+    });
 
     window.addEventListener('keydown', (event) => {
       if (event.key === 'ArrowDown') step(1);
