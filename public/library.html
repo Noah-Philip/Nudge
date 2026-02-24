@@ -1,5 +1,67 @@
-<!doctype html><html><head><meta charset="utf-8"/><title>Nudge Library</title></head><body style="font-family:Arial;max-width:900px;margin:30px auto"><h1>Library</h1><a href="/">Back</a><ul id="list"></ul><script>
-async function load(){const r=await fetch('/api/videos');const j=await r.json();document.getElementById('list').innerHTML=(j.videos||[]).map(v=>`<li style='margin:8px 0'>${v.title} (${v.topic}) <button onclick="del('${v.id}')">Delete</button></li>`).join('');}
-async function del(id){await fetch('/api/videos/'+id,{method:'DELETE'});load();}
-load();
-</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nudge Library</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100">
+  <main class="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+    <div class="mb-6 flex items-center justify-between gap-4">
+      <div>
+        <p class="text-xs uppercase tracking-[0.2em] text-violet-300">Nudge</p>
+        <h1 class="text-3xl font-bold">Video Library</h1>
+      </div>
+      <a href="/" class="rounded-lg bg-violet-500 px-4 py-2 font-semibold text-white hover:bg-violet-400">Back</a>
+    </div>
+
+    <p id="empty" class="hidden rounded-lg border border-slate-800 bg-slate-900/70 p-4 text-slate-300">
+      No videos yet. Upload an mp4 from the upload page to populate the library.
+    </p>
+
+    <section id="grid" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"></section>
+  </main>
+
+  <script>
+    function renderVideoCard(video) {
+      return `
+        <article class="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70 shadow-lg shadow-black/20">
+          <div class="aspect-[9/16] bg-black">
+            <video src="${video.filePath}" muted preload="metadata" playsinline class="h-full w-full object-cover"></video>
+          </div>
+          <div class="space-y-2 p-3">
+            <h2 class="text-lg font-semibold leading-tight">${video.title}</h2>
+            <p class="text-sm text-slate-300">${video.topic}</p>
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span>${video.views || 0} views · ${video.likes || 0} likes</span>
+              <button data-delete-id="${video.id}" class="rounded bg-rose-600 px-2 py-1 font-semibold text-white hover:bg-rose-500">Delete</button>
+            </div>
+          </div>
+        </article>
+      `;
+    }
+
+    async function load() {
+      const response = await fetch('/api/videos');
+      const payload = await response.json();
+      const videos = payload.videos || [];
+      const grid = document.getElementById('grid');
+      const empty = document.getElementById('empty');
+
+      empty.classList.toggle('hidden', videos.length > 0);
+      grid.innerHTML = videos.map(renderVideoCard).join('');
+
+      grid.querySelectorAll('[data-delete-id]').forEach((button) => {
+        button.addEventListener('click', async (event) => {
+          const id = event.currentTarget.getAttribute('data-delete-id');
+          await fetch('/api/videos/' + id, { method: 'DELETE' });
+          load();
+        });
+      });
+    }
+
+    load();
+  </script>
+</body>
+</html>
