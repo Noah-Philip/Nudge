@@ -60,16 +60,59 @@
       showingModule: false,
       recordedViews: new Set(),
       playbackError: false,
-      workoutDone: { timer: false, checklist: false },
       workoutTimer: null,
-      workoutSeconds: 30,
       isMuted: false,
       typingStartedAt: 0,
       snoozeRemaining: 0,
+      moduleShownKey: '',
+      resetNudge: {
+        selectedType: '',
+        active: false,
+        started: false,
+        completed: false,
+        stepIndex: 0,
+        phaseIndex: 0,
+        phaseElapsed: 0,
+        secondsLeft: 0,
+      },
     };
 
     const MODULE_EVERY = 3;
     const MODULE_SEQUENCE = ['chess', 'workout', 'typing'];
+    const RESET_REASONS = [
+      'Because you’ve been scrolling for a while.',
+      'Because you watched fitness content.',
+    ];
+    const RESET_CONFIG = {
+      stretch: {
+        label: 'Stretch',
+        title: '30s Reset',
+        steps: [
+          { label: 'Shoulder rolls', seconds: 10 },
+          { label: 'Neck stretch', seconds: 10 },
+          { label: 'Stand + reach', seconds: 10 },
+        ],
+      },
+      strength: {
+        label: 'Strength',
+        title: '40s Reset',
+        steps: [
+          { label: '10 squats', seconds: 20 },
+          { label: 'Hold squat', seconds: 10 },
+          { label: 'Calf raises', seconds: 10 },
+        ],
+      },
+      breath: {
+        label: 'Breath',
+        title: '24s Reset',
+        phases: [
+          { label: 'Inhale', seconds: 4 },
+          { label: 'Hold', seconds: 2 },
+          { label: 'Exhale', seconds: 6 },
+        ],
+        cycles: 2,
+      },
+    };
 
     const moduleTypeForIndex = (index) => MODULE_SEQUENCE[index % MODULE_SEQUENCE.length];
 
@@ -118,6 +161,35 @@
       } catch (_) {
         // fire-and-forget for MVP
       }
+    }
+
+    function clearWorkoutTimer() {
+      if (!state.workoutTimer) return;
+      clearInterval(state.workoutTimer);
+      state.workoutTimer = null;
+    }
+
+    function resetResetNudgeState() {
+      clearWorkoutTimer();
+      state.resetNudge = {
+        selectedType: '',
+        active: false,
+        started: false,
+        completed: false,
+        stepIndex: 0,
+        phaseIndex: 0,
+        phaseElapsed: 0,
+        secondsLeft: 0,
+      };
+    }
+
+    function postModuleEvent(eventType, details = {}) {
+      const topic = details.resetType || 'fitness';
+      postJson('/api/modules/attempt', {
+        moduleType: 'RESET_NUDGE',
+        topic,
+        completed: eventType === 'completed',
+      });
     }
 
     async function recordViewOnce(video) {
@@ -329,34 +401,227 @@
       renderBoard();
     }
 
+    function workoutReasonText() {
+      const video = currentVideo();
+      return video && video.topic === 'fitness' ? RESET_REASONS[1] : RESET_REASONS[0];
+    }
+
+    function formatSeconds(totalSeconds) {
+      const mm = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+      const ss = String(totalSeconds % 60).padStart(2, '0');
+      return `${mm}:${ss}`;
+    }
+
+    function stepCountForType(resetType) {
+      if (resetType === 'breath') return RESET_CONFIG.breath.cycles * RESET_CONFIG.breath.phases.length;
+      return RESET_CONFIG[resetType].steps.length;
+    }
+
+    function totalSecondsForType(resetType) {
+      if (resetType === 'breath') {
+        const cycleSeconds = RESET_CONFIG.breath.phases.reduce((total, phase) => total + phase.seconds, 0);
+        return cycleSeconds * RESET_CONFIG.breath.cycles;
+      }
+      return RESET_CONFIG[resetType].steps.reduce((total, step) => total + step.seconds, 0);
+    }
+
+    function getCurrentInstruction(resetType) {
+      if (!resetType) return { label: 'Pick your reset type', seconds: 0, stepNumber: 0, stepCount: 1 };
+      if (resetType === 'breath') {
+        const phase = RESET_CONFIG.breath.phases[state.resetNudge.phaseIndex];
+        return {
+          label: `${phase.label} — cycle ${state.resetNudge.stepIndex + 1}`,
+          seconds: phase.seconds,
+          stepNumber: state.resetNudge.stepIndex * RESET_CONFIG.breath.phases.length + state.resetNudge.phaseIndex + 1,
+          stepCount: stepCountForType('breath'),
+        };
+      }
+      const step = RESET_CONFIG[resetType].steps[state.resetNudge.stepIndex];
+      return {
+        label: step.label,
+        seconds: step.seconds,
+        stepNumber: state.resetNudge.stepIndex + 1,
+        stepCount: stepCountForType(resetType),
+      };
+    }
+
+    function overallProgressPercent() {
+      const resetType = state.resetNudge.selectedType;
+      if (!resetType) return 0;
+      const total = totalSecondsForType(resetType);
+      const elapsed = total - state.resetNudge.secondsLeft;
+      return Math.max(0, Math.min(100, Math.round((elapsed / total) * 100)));
+    }
+
     function renderWorkoutModule() {
-      state.workoutDone = { timer: false, checklist: false };
-      state.workoutSeconds = 30;
+      if (!state.moduleShownKey) {
+        resetResetNudgeState();
+      }
       setCardMode(true);
+      const resetType = state.resetNudge.selectedType;
+      const instruction = getCurrentInstruction(resetType);
+      const progress = overallProgressPercent();
+      const done = state.resetNudge.completed;
       card.innerHTML = `
         <div class="mb-2 flex items-center justify-between">
           <span class="rounded-full border border-violet-200/50 bg-violet-300/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-violet-100">Nudge</span>
-          <span class="nudge-pulse text-xs font-medium text-violet-200">Pause scroll - try this</span>
+          <span class="nudge-pulse text-xs font-medium text-violet-200">Pause scroll — try this</span>
         </div>
-        <h2 class="text-lg font-semibold">Workout Nudge</h2>
-        <p class="mt-2 text-sm text-slate-300">30-second micro reset + checklist.</p>
-        <div class="mt-3 rounded-lg bg-slate-800 p-3">
-          <p id="timerText" class="text-2xl font-bold">00:30</p>
-          <button id="startTimerBtn" class="mt-2 rounded bg-emerald-500 px-3 py-2 text-sm font-semibold">Start timer</button>
+        <h2 class="text-lg font-semibold">${resetType ? RESET_CONFIG[resetType].title : '30s Reset'}</h2>
+        <p class="mt-1 text-xs text-violet-200/90">Why this appeared: ${workoutReasonText()}</p>
+
+        <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-800/80">
+          <div class="h-full rounded-full bg-emerald-400 transition-all" style="width: ${progress}%"></div>
         </div>
-        <label class="mt-3 flex items-center gap-2 text-sm">
-          <input id="checkDone" type="checkbox" /> I completed 10 bodyweight squats
-        </label>
-        <p id="moduleFeedback" class="mt-3 text-sm text-violet-300">Complete both items to unlock next.</p>
+        <p class="mt-2 text-xs text-slate-300">${done ? 'Complete' : `Step ${instruction.stepNumber || 1} of ${instruction.stepCount || 1}`}</p>
+
+        <div class="mt-3 rounded-xl border border-violet-200/20 bg-violet-950/30 p-4 text-center">
+          <p class="text-sm text-violet-100">${done ? '✅ Nice reset.' : instruction.label}</p>
+          <p class="mt-2 text-4xl font-bold text-white">${done ? 'Done' : formatSeconds(state.resetNudge.secondsLeft || instruction.seconds || 0)}</p>
+          <p class="mt-1 text-xs text-slate-300">${done ? 'You completed a movement break.' : 'Follow the timer and keep it easy.'}</p>
+        </div>
+
+        ${!state.resetNudge.active && !done ? `
+          <div class="mt-3 grid grid-cols-3 gap-2">
+            <button data-reset-type="stretch" class="reset-type-btn rounded-lg border border-white/15 bg-slate-800 px-2 py-2 text-sm ${resetType === 'stretch' ? 'ring-2 ring-emerald-400' : ''}">Stretch</button>
+            <button data-reset-type="strength" class="reset-type-btn rounded-lg border border-white/15 bg-slate-800 px-2 py-2 text-sm ${resetType === 'strength' ? 'ring-2 ring-emerald-400' : ''}">Strength</button>
+            <button data-reset-type="breath" class="reset-type-btn rounded-lg border border-white/15 bg-slate-800 px-2 py-2 text-sm ${resetType === 'breath' ? 'ring-2 ring-emerald-400' : ''}">Breath</button>
+          </div>
+        ` : ''}
+
+        <div class="mt-4 flex flex-wrap gap-2">
+          ${!state.resetNudge.started && !done ? '<button id="startResetBtn" class="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold">Start</button>' : ''}
+          ${state.resetNudge.active && !done ? '<button id="nextStepBtn" class="rounded bg-sky-500 px-4 py-2 text-sm font-semibold">Next step</button>' : ''}
+          ${done ? '<button id="continueFeedBtn" class="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold">Continue feed</button>' : ''}
+          <button id="skipModuleBtn" class="rounded bg-slate-700 px-4 py-2 text-sm">Skip</button>
+          <button id="snoozeModuleBtn" class="rounded border border-violet-300/40 bg-violet-400/10 px-4 py-2 text-sm text-violet-200">Snooze nudges</button>
+        </div>
       `;
 
-      postJson('/api/modules/attempt', { moduleType: 'WORKOUT_TIMER', topic: 'fitness', completed: false });
+      if (!state.moduleShownKey) {
+        state.moduleShownKey = `workout-${state.moduleTicker}`;
+        postModuleEvent('shown');
+      }
 
-      document.getElementById('startTimerBtn').addEventListener('click', startTimer);
-      document.getElementById('checkDone').addEventListener('change', (event) => {
-        state.workoutDone.checklist = event.target.checked;
-        updateWorkoutFeedback();
+      card.querySelectorAll('.reset-type-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.resetNudge.selectedType = button.getAttribute('data-reset-type');
+          const total = totalSecondsForType(state.resetNudge.selectedType);
+          state.resetNudge.secondsLeft = total;
+          state.resetNudge.stepIndex = 0;
+          state.resetNudge.phaseIndex = 0;
+          state.resetNudge.phaseElapsed = 0;
+          postModuleEvent('type_selected', { resetType: state.resetNudge.selectedType });
+          renderWorkoutModule();
+        });
       });
+
+      const startResetBtn = document.getElementById('startResetBtn');
+      if (startResetBtn) startResetBtn.addEventListener('click', startResetFlow);
+
+      const nextStepBtn = document.getElementById('nextStepBtn');
+      if (nextStepBtn) nextStepBtn.addEventListener('click', moveToNextResetStep);
+
+      const skipModuleBtn = document.getElementById('skipModuleBtn');
+      if (skipModuleBtn) {
+        skipModuleBtn.addEventListener('click', () => {
+          clearWorkoutTimer();
+          postModuleEvent('skipped', { resetType: state.resetNudge.selectedType });
+          state.showingModule = false;
+          state.moduleShownKey = '';
+          render();
+        });
+      }
+
+      const snoozeModuleBtn = document.getElementById('snoozeModuleBtn');
+      if (snoozeModuleBtn) {
+        snoozeModuleBtn.addEventListener('click', () => {
+          state.snoozeRemaining = 10;
+          clearWorkoutTimer();
+          state.showingModule = false;
+          state.moduleShownKey = '';
+          updateSnoozeUI();
+          render();
+        });
+      }
+
+      const continueFeedBtn = document.getElementById('continueFeedBtn');
+      if (continueFeedBtn) {
+        continueFeedBtn.addEventListener('click', () => {
+          clearWorkoutTimer();
+          state.showingModule = false;
+          state.moduleShownKey = '';
+          render();
+        });
+      }
+    }
+
+    function startResetFlow() {
+      if (!state.resetNudge.selectedType) return;
+      if (state.resetNudge.started) return;
+      state.resetNudge.started = true;
+      state.resetNudge.active = true;
+      state.resetNudge.completed = false;
+      postModuleEvent('started', { resetType: state.resetNudge.selectedType });
+      clearWorkoutTimer();
+      state.workoutTimer = setInterval(tickResetNudge, 1000);
+      renderWorkoutModule();
+    }
+
+    function moveToNextResetStep() {
+      if (!state.resetNudge.active) return;
+      if (state.resetNudge.selectedType === 'breath') {
+        advanceBreathStep();
+      } else {
+        advanceLinearStep();
+      }
+      renderWorkoutModule();
+    }
+
+    function advanceLinearStep() {
+      const resetType = state.resetNudge.selectedType;
+      const steps = RESET_CONFIG[resetType].steps;
+      if (state.resetNudge.stepIndex >= steps.length - 1) {
+        finishResetNudge();
+        return;
+      }
+      state.resetNudge.stepIndex += 1;
+    }
+
+    function advanceBreathStep() {
+      const nextPhase = state.resetNudge.phaseIndex + 1;
+      if (nextPhase < RESET_CONFIG.breath.phases.length) {
+        state.resetNudge.phaseIndex = nextPhase;
+        return;
+      }
+      state.resetNudge.phaseIndex = 0;
+      if (state.resetNudge.stepIndex < RESET_CONFIG.breath.cycles - 1) {
+        state.resetNudge.stepIndex += 1;
+      } else {
+        finishResetNudge();
+      }
+    }
+
+    function tickResetNudge() {
+      if (!state.resetNudge.active || state.resetNudge.completed) return;
+      state.resetNudge.secondsLeft = Math.max(0, state.resetNudge.secondsLeft - 1);
+      state.resetNudge.phaseElapsed += 1;
+      const instruction = getCurrentInstruction(state.resetNudge.selectedType);
+      if (state.resetNudge.phaseElapsed >= instruction.seconds) {
+        state.resetNudge.phaseElapsed = 0;
+        moveToNextResetStep();
+        return;
+      }
+      renderWorkoutModule();
+    }
+
+    function finishResetNudge() {
+      clearWorkoutTimer();
+      state.resetNudge.completed = true;
+      state.resetNudge.active = false;
+      state.resetNudge.phaseElapsed = 0;
+      state.resetNudge.secondsLeft = 0;
+      postModuleEvent('completed', { resetType: state.resetNudge.selectedType });
     }
 
     function renderTypingModule() {
@@ -401,34 +666,6 @@
       });
     }
 
-    function startTimer() {
-      if (state.workoutTimer) return;
-      const timerText = document.getElementById('timerText');
-      state.workoutTimer = setInterval(() => {
-        state.workoutSeconds -= 1;
-        const mm = String(Math.floor(state.workoutSeconds / 60)).padStart(2, '0');
-        const ss = String(state.workoutSeconds % 60).padStart(2, '0');
-        timerText.textContent = `${mm}:${ss}`;
-        if (state.workoutSeconds <= 0) {
-          clearInterval(state.workoutTimer);
-          state.workoutTimer = null;
-          state.workoutDone.timer = true;
-          updateWorkoutFeedback();
-        }
-      }, 1000);
-    }
-
-    function updateWorkoutFeedback() {
-      const feedback = document.getElementById('moduleFeedback');
-      const done = state.workoutDone.timer && state.workoutDone.checklist;
-      if (done) {
-        feedback.textContent = 'Great work. Module complete — continue scrolling.';
-        postJson('/api/modules/attempt', { moduleType: 'WORKOUT_TIMER', topic: 'fitness', completed: true });
-      } else {
-        feedback.textContent = 'Complete both items to unlock next.';
-      }
-    }
-
     function renderModule() {
       const completedGroups = Math.max(0, Math.floor((state.moduleTicker - 1) / MODULE_EVERY));
       const type = moduleTypeForIndex(completedGroups);
@@ -466,6 +703,8 @@
       if (!state.videos.length) return;
 
       if (state.showingModule) {
+        clearWorkoutTimer();
+        state.moduleShownKey = '';
         state.showingModule = false;
       } else {
         state.cursor = (state.cursor + direction + state.videos.length) % state.videos.length;
@@ -488,7 +727,9 @@
     likeBtn.addEventListener('click', likeCurrent);
     snoozeBtn.addEventListener('click', () => {
       state.snoozeRemaining = 10;
+      clearWorkoutTimer();
       state.showingModule = false;
+      state.moduleShownKey = '';
       updateSnoozeUI();
       render();
     });
