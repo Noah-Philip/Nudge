@@ -61,10 +61,22 @@
       recordedViews: new Set(),
       playbackError: false,
       workoutTimer: null,
+      typingTimer: null,
       isMuted: false,
-      typingStartedAt: 0,
       snoozeRemaining: 0,
       moduleShownKey: '',
+      typingNudge: {
+        started: false,
+        finished: false,
+        timeLeft: 30,
+        score: 0,
+        typedWords: 0,
+        misses: 0,
+        activeWords: [],
+        inputValue: '',
+        elapsedTicks: 0,
+        spawnCarry: 0,
+      },
       resetNudge: {
         selectedType: '',
         active: false,
@@ -79,6 +91,10 @@
 
     const MODULE_EVERY = 3;
     const MODULE_SEQUENCE = ['chess', 'workout', 'typing'];
+    const TYPING_WORDS = [
+      'focus', 'build', 'launch', 'clarity', 'momentum', 'routine', 'learn', 'habit', 'create', 'ship',
+      'flow', 'signal', 'deep', 'energy', 'practice', 'rapid', 'steady', 'intent', 'output', 'iterate',
+    ];
     const RESET_REASONS = [
       'Because you’ve been scrolling for a while.',
       'Because you watched fitness content.',
@@ -169,6 +185,28 @@
       state.workoutTimer = null;
     }
 
+    function clearTypingTimer() {
+      if (!state.typingTimer) return;
+      clearInterval(state.typingTimer);
+      state.typingTimer = null;
+    }
+
+    function resetTypingNudgeState() {
+      clearTypingTimer();
+      state.typingNudge = {
+        started: false,
+        finished: false,
+        timeLeft: 30,
+        score: 0,
+        typedWords: 0,
+        misses: 0,
+        activeWords: [],
+        inputValue: '',
+        elapsedTicks: 0,
+        spawnCarry: 0,
+      };
+    }
+
     function resetResetNudgeState() {
       clearWorkoutTimer();
       state.resetNudge = {
@@ -187,6 +225,25 @@
       const topic = details.resetType || 'fitness';
       postJson('/api/modules/attempt', {
         moduleType: 'RESET_NUDGE',
+        topic,
+        completed: eventType === 'completed',
+      });
+    }
+
+    function typingReasonText() {
+      const video = currentVideo();
+      return video && ['typing', 'productivity', 'study'].includes((video.topic || '').toLowerCase())
+        ? 'Because you’ve been watching typing/productivity content.'
+        : 'Because you’ve been scrolling for a while.';
+    }
+
+    function trackTypingEvent(eventType, details = {}) {
+      const accuracy = details.accuracy ?? 0;
+      const score = details.score ?? 0;
+      const misses = details.misses ?? 0;
+      const topic = `typing-sprint|${eventType}|score:${score}|accuracy:${accuracy}|misses:${misses}`;
+      postJson('/api/modules/attempt', {
+        moduleType: 'TYPING_SPRINT',
         topic,
         completed: eventType === 'completed',
       });
@@ -624,46 +681,219 @@
       postModuleEvent('completed', { resetType: state.resetNudge.selectedType });
     }
 
+    function typingAccuracy() {
+      const total = state.typingNudge.typedWords + state.typingNudge.misses;
+      if (!total) return 100;
+      return Math.round((state.typingNudge.typedWords / total) * 100);
+    }
+
+    function typingProgressPercent() {
+      return Math.round(((30 - state.typingNudge.timeLeft) / 30) * 100);
+    }
+
+    function randomTypingWord() {
+      const offset = (state.typingNudge.elapsedTicks + state.typingNudge.typedWords + state.typingNudge.misses) % TYPING_WORDS.length;
+      return TYPING_WORDS[offset];
+    }
+
+    function spawnTypingWord() {
+      if (state.typingNudge.activeWords.length >= 6) return;
+      const lane = state.typingNudge.elapsedTicks % 4;
+      state.typingNudge.activeWords.push({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        text: randomTypingWord(),
+        y: -8,
+        x: 8 + lane * 22,
+        speed: 0.45 + (30 - state.typingNudge.timeLeft) * 0.03,
+      });
+    }
+
+    function finishTypingRound() {
+      clearTypingTimer();
+      state.typingNudge.started = false;
+      state.typingNudge.finished = true;
+      trackTypingEvent('completed', {
+        score: state.typingNudge.score,
+        accuracy: typingAccuracy(),
+        misses: state.typingNudge.misses,
+      });
+      renderTypingModule();
+    }
+
+    function tickTypingGame() {
+      if (!state.typingNudge.started || state.typingNudge.finished) return;
+      state.typingNudge.elapsedTicks += 1;
+      if (state.typingNudge.elapsedTicks % 8 === 0) {
+        state.typingNudge.timeLeft = Math.max(0, state.typingNudge.timeLeft - 1);
+      }
+
+      const spawnRate = Math.max(0.2, 0.62 - ((30 - state.typingNudge.timeLeft) * 0.012));
+      state.typingNudge.spawnCarry += spawnRate;
+      while (state.typingNudge.spawnCarry >= 1) {
+        spawnTypingWord();
+        state.typingNudge.spawnCarry -= 1;
+      }
+
+      state.typingNudge.activeWords = state.typingNudge.activeWords.filter((word) => {
+        const nextY = word.y + word.speed;
+        if (nextY >= 88) {
+          state.typingNudge.misses += 1;
+          return false;
+        }
+        word.y = nextY;
+        return true;
+      });
+
+      if (state.typingNudge.timeLeft <= 0) {
+        finishTypingRound();
+        return;
+      }
+
+      renderTypingModule();
+    }
+
+    function submitTypingWord() {
+      const typed = state.typingNudge.inputValue.trim().toLowerCase();
+      if (!typed) return;
+      const sorted = [...state.typingNudge.activeWords].sort((a, b) => b.y - a.y);
+      const target = sorted.find((word) => word.text === typed);
+      if (target) {
+        state.typingNudge.activeWords = state.typingNudge.activeWords.filter((word) => word.id !== target.id);
+        state.typingNudge.score += 10;
+        state.typingNudge.typedWords += 1;
+      }
+      state.typingNudge.inputValue = '';
+      renderTypingModule();
+    }
+
+    function startTypingRound() {
+      resetTypingNudgeState();
+      state.typingNudge.started = true;
+      spawnTypingWord();
+      trackTypingEvent('started');
+      state.typingTimer = setInterval(tickTypingGame, 125);
+      renderTypingModule();
+    }
+
     function renderTypingModule() {
-      const prompt = 'stay focused and keep shipping';
-      state.typingStartedAt = Date.now();
+      if (!state.moduleShownKey) {
+        resetTypingNudgeState();
+        state.moduleShownKey = `typing-${state.moduleTicker}`;
+        trackTypingEvent('shown');
+      }
+
+      const reasonText = typingReasonText();
+      const accuracy = typingAccuracy();
+      const progress = typingProgressPercent();
       setCardMode(true);
       card.innerHTML = `
         <div class="mb-2 flex items-center justify-between">
           <span class="rounded-full border border-violet-200/50 bg-violet-300/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-violet-100">Nudge</span>
-          <span class="nudge-pulse text-xs font-medium text-violet-200">Pause scroll - try this</span>
+          <span class="nudge-pulse text-xs font-medium text-violet-200">Pause scroll — try this</span>
         </div>
         <h2 class="text-lg font-semibold">Typing Sprint</h2>
-        <p class="mt-2 text-sm text-slate-300">Type this phrase exactly, then submit.</p>
-        <p class="mt-3 rounded-lg bg-slate-800 p-3 text-sm font-medium text-sky-200">${prompt}</p>
-        <label class="mt-3 block text-sm">Your input</label>
-        <input id="typingInput" class="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm" autocomplete="off" spellcheck="false" />
-        <button id="submitTypingBtn" class="mt-3 rounded bg-sky-500 px-3 py-2 text-sm font-semibold">Submit</button>
-        <p id="moduleFeedback" class="mt-3 text-sm text-violet-300">Finish the typing test to complete this module.</p>
+        <p class="mt-1 text-xs text-violet-200/90">Why this appeared: ${reasonText}</p>
+
+        <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-800/80">
+          <div class="h-full rounded-full bg-sky-400 transition-all" style="width: ${progress}%"></div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-xs text-slate-200">
+          <p>Time left: ${formatSeconds(state.typingNudge.timeLeft)}</p>
+          <p>Score: <span class="font-semibold text-sky-300">${state.typingNudge.score}</span></p>
+          <p>Accuracy: <span class="font-semibold text-emerald-300">${accuracy}%</span></p>
+        </div>
+
+        ${state.typingNudge.finished ? `
+          <div class="mt-3 rounded-xl border border-emerald-200/20 bg-emerald-900/20 p-4 text-center">
+            <p class="text-lg font-semibold text-emerald-100">Nice sprint.</p>
+            <p class="mt-2 text-sm text-slate-200">Final score: ${state.typingNudge.score}</p>
+            <p class="text-sm text-slate-200">Accuracy: ${accuracy}% • Misses: ${state.typingNudge.misses}</p>
+          </div>
+          <div class="mt-4 flex flex-wrap gap-2">
+            <button id="retryTypingBtn" class="rounded bg-sky-500 px-4 py-2 text-sm font-semibold">Retry</button>
+            <button id="continueTypingBtn" class="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold">Continue feed</button>
+          </div>
+        ` : `
+          <div class="mt-3 rounded-xl border border-sky-200/20 bg-sky-950/25 p-3">
+            <div class="relative h-52 overflow-hidden rounded-lg border border-white/10 bg-slate-950/80">
+              ${state.typingNudge.activeWords.map((word) => (`
+                <span class="absolute rounded-md bg-sky-500/20 px-2 py-1 text-sm font-semibold text-sky-100" style="top:${word.y}%;left:${word.x}%">${word.text}</span>
+              `)).join('')}
+              ${!state.typingNudge.started ? '<p class="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-sm text-slate-300">Tap start, then type falling words before they drop.</p>' : ''}
+            </div>
+
+            <label class="mt-3 block text-sm text-slate-200">Type words</label>
+            <input id="typingInput" class="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm" autocomplete="off" spellcheck="false" value="${state.typingNudge.inputValue}" placeholder="Type and press space/enter" />
+            <p class="mt-1 text-xs text-slate-400">Press space or enter to submit. Matching words score points.</p>
+          </div>
+
+          <div class="mt-4 flex flex-wrap gap-2">
+            ${!state.typingNudge.started ? '<button id="startTypingBtn" class="rounded bg-sky-500 px-4 py-2 text-sm font-semibold">Start</button>' : ''}
+            <button id="skipModuleBtn" class="rounded bg-slate-700 px-4 py-2 text-sm">Skip</button>
+            <button id="snoozeModuleBtn" class="rounded border border-violet-300/40 bg-violet-400/10 px-4 py-2 text-sm text-violet-200">Snooze nudges</button>
+          </div>
+        `}
       `;
-
-      postJson('/api/modules/attempt', { moduleType: 'TYPING_TEST', topic: 'focus', completed: false });
-
       const input = document.getElementById('typingInput');
-      const submit = document.getElementById('submitTypingBtn');
-      const feedback = document.getElementById('moduleFeedback');
 
-      const evaluate = () => {
-        const value = input.value.trim();
-        if (value === prompt) {
-          const elapsedMs = Date.now() - state.typingStartedAt;
-          const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
-          feedback.textContent = `Nice. Module complete in ${elapsedSec}s — continue scrolling.`;
-          postJson('/api/modules/attempt', { moduleType: 'TYPING_TEST', topic: 'focus', completed: true });
-          return;
-        }
-        feedback.textContent = 'Not quite. Match the phrase exactly and try again.';
-      };
+      const startTypingBtn = document.getElementById('startTypingBtn');
+      if (startTypingBtn) startTypingBtn.addEventListener('click', startTypingRound);
 
-      submit.addEventListener('click', evaluate);
-      input.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') evaluate();
-      });
+      const retryTypingBtn = document.getElementById('retryTypingBtn');
+      if (retryTypingBtn) retryTypingBtn.addEventListener('click', startTypingRound);
+
+      const continueTypingBtn = document.getElementById('continueTypingBtn');
+      if (continueTypingBtn) {
+        continueTypingBtn.addEventListener('click', () => {
+          state.moduleShownKey = '';
+          state.showingModule = false;
+          render();
+        });
+      }
+
+      const skipButton = document.getElementById('skipModuleBtn');
+      if (skipButton) {
+        skipButton.addEventListener('click', () => {
+          trackTypingEvent('skipped', {
+            score: state.typingNudge.score,
+            accuracy: typingAccuracy(),
+            misses: state.typingNudge.misses,
+          });
+          resetTypingNudgeState();
+          state.moduleShownKey = '';
+          state.showingModule = false;
+          render();
+        });
+      }
+
+      const snoozeTypingBtn = document.getElementById('snoozeModuleBtn');
+      if (snoozeTypingBtn) {
+        snoozeTypingBtn.addEventListener('click', () => {
+          state.snoozeRemaining = 10;
+          resetTypingNudgeState();
+          state.moduleShownKey = '';
+          state.showingModule = false;
+          updateSnoozeUI();
+          render();
+        });
+      }
+
+      if (input) {
+        if (state.typingNudge.started) input.focus();
+        input.addEventListener('input', () => {
+          state.typingNudge.inputValue = input.value;
+          const normalized = state.typingNudge.inputValue.trim().toLowerCase();
+          if (normalized && state.typingNudge.activeWords.some((word) => word.text === normalized)) {
+            submitTypingWord();
+          }
+        });
+        input.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            submitTypingWord();
+          }
+        });
+      }
     }
 
     function renderModule() {
@@ -704,6 +934,7 @@
 
       if (state.showingModule) {
         clearWorkoutTimer();
+        clearTypingTimer();
         state.moduleShownKey = '';
         state.showingModule = false;
       } else {
@@ -728,6 +959,7 @@
     snoozeBtn.addEventListener('click', () => {
       state.snoozeRemaining = 10;
       clearWorkoutTimer();
+      clearTypingTimer();
       state.showingModule = false;
       state.moduleShownKey = '';
       updateSnoozeUI();
