@@ -74,6 +74,7 @@
         misses: 0,
         activeWords: [],
         inputValue: '',
+        cursorIndex: 0,
         elapsedTicks: 0,
         spawnCarry: 0,
       },
@@ -202,6 +203,7 @@
         misses: 0,
         activeWords: [],
         inputValue: '',
+        cursorIndex: 0,
         elapsedTicks: 0,
         spawnCarry: 0,
       };
@@ -887,19 +889,30 @@
       }
 
       if (input) {
-        if (state.typingNudge.started) input.focus();
+        const nextCursorIndex = Math.min(state.typingNudge.cursorIndex, input.value.length);
+        if (state.typingNudge.started) {
+          input.focus();
+          input.setSelectionRange(nextCursorIndex, nextCursorIndex);
+        }
         input.addEventListener('input', () => {
           state.typingNudge.inputValue = input.value;
+          state.typingNudge.cursorIndex = input.selectionStart ?? state.typingNudge.inputValue.length;
           const normalized = state.typingNudge.inputValue.trim().toLowerCase();
           if (normalized && state.typingNudge.activeWords.some((word) => word.text === normalized)) {
             submitTypingWord();
           }
+        });
+        input.addEventListener('click', () => {
+          state.typingNudge.cursorIndex = input.selectionStart ?? state.typingNudge.inputValue.length;
         });
         input.addEventListener('keydown', (event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
             submitTypingWord();
           }
+        });
+        input.addEventListener('keyup', () => {
+          state.typingNudge.cursorIndex = input.selectionStart ?? state.typingNudge.inputValue.length;
         });
       }
     }
